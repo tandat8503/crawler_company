@@ -69,6 +69,7 @@ def make_clickable(url):
 show_df = filtered_df.copy()
 show_df["article_url"] = show_df["article_url"].apply(make_clickable)
 show_df["website"] = show_df["website"].apply(make_clickable)
+show_df["linkedin"] = show_df["linkedin"].apply(make_clickable)
 show_df = show_df[fields]  # Đảm bảo đúng thứ tự
 
 st.write("### Danh sách công ty được raise fund (7 ngày gần nhất)")
