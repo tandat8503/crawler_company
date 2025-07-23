@@ -282,7 +282,8 @@ def is_funding_article_llm(article_text, debug=False):
     prompt = (
         "Given the following news article, answer only Yes or No: "
         "Is this article PRIMARILY about a company that has JUST SUCCESSFULLY raised new funds (funding, investment, venture round, seed, series A/B/C, etc) for its future development or growth? "
-        "Do NOT answer Yes if the article is mainly about bankruptcy, fraud, lawsuits, indictments, liquidation, company shutdown, or past funding events. "
+        "Answer Yes if the article is mainly about a NEW funding event, including extension/top-up/add-on to an existing round (e.g. Series B extension, new investors join Series B, etc). "
+        "Do NOT answer Yes if the article is mainly about bankruptcy, fraud, lawsuits, indictments, liquidation, company shutdown, IPO, or past funding events. "
         "If the article is about legal troubles, fraud, bankruptcy, or only mentions past funding, answer No. "
         "If the article is about a company that raised funds in the past (not a new funding event), or is about IPO, or is about general industry news, answer No. "
         "If you are not sure, answer No.\n\n"
