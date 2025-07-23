@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Environment variables
+.env
+.env.*
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# VSCode
+.vscode/
+
+# MacOS
+.DS_Store
+
+# Test, debug, and temp files
+test/
+debug_techcrunch_selenium.html
+*.log
+
+# Data output (nếu không muốn track dữ liệu crawl)
+companies.csv
+funded_companies_aggregated.csv
+
+# Ignore any other sensitive or temp files 
