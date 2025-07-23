@@ -1,13 +1,22 @@
 import sys
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 
 # Đảm bảo import được các hàm từ auto_crawl.py
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from auto_crawl import get_article_links_last_7_days, load_existing_entries, save_to_csv, extract_company_name_and_raised_date_llm, is_funding_article_llm, search_google_website, search_google_linkedin
+from auto_crawl import (
+    get_article_links_last_7_days,
+    load_existing_entries,
+    save_to_csv,
+    extract_company_name_and_raised_date_llm,
+    is_funding_article_llm,
+    search_google_website,
+    search_google_linkedin,
+    normalize_company_name,
+    verify_and_normalize_link
+)
 import requests
 from bs4 import BeautifulSoup
-from datetime import date
 
 CSV_FILE = os.path.join(os.path.dirname(__file__), 'companies.csv')
 
@@ -15,13 +24,13 @@ CSV_FILE = os.path.join(os.path.dirname(__file__), 'companies.csv')
 def crawl_today():
     print('Crawling TechCrunch Startups (today only)...')
     today = date.today()
-    min_date = today
-    max_date = today
-    article_links = get_article_links_last_7_days(min_date=min_date, max_pages=10)
+    article_links = get_article_links_last_7_days(min_date=today, max_pages=10)
     print(f'Found {len(article_links)} articles.')
     existing_entries = load_existing_entries()
     unique_entries = {}
     for url, pub_date in article_links:
+        if pub_date != today.isoformat():
+            continue
         source = "TechCrunch"
         try:
             resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0 (compatible; CompanyFundBot/1.0)'}, timeout=10)
@@ -39,7 +48,7 @@ def crawl_today():
             if not is_funding_article_llm(article_text):
                 print(f"[SKIP][NOT FUNDING] Title: {title} | Date: {pub_date} | URL: {url}")
                 continue
-            info = extract_company_name_and_raised_date_llm(article_text, min_date.isoformat(), today.isoformat())
+            info = extract_company_name_and_raised_date_llm(article_text, today.isoformat(), today.isoformat())
             if isinstance(info, list):
                 infos = info
             else:
@@ -47,7 +56,8 @@ def crawl_today():
             for company_info in infos:
                 company_name = company_info.get('company_name', '').strip()
                 raised_date = company_info.get('raised_date', '').strip() or pub_date
-                key = (company_name.lower().strip(), pub_date)
+                norm_name = normalize_company_name(company_name)
+                key = (norm_name, url)
                 if not company_name:
                     print(f"[SKIP][NO COMPANY NAME] Title: {title} | Date: {pub_date} | URL: {url}")
                     continue
@@ -55,9 +65,11 @@ def crawl_today():
                     print(f"[SKIP][DUPLICATE] {company_name} | {pub_date} | {url}")
                     continue
                 website = search_google_website(company_name)
+                website = verify_and_normalize_link(company_name, website, link_type='website')
                 if not website:
                     print(f"[WARNING][NO WEBSITE] {company_name} | {pub_date} | {url}")
                 linkedin = search_google_linkedin(company_name, website=website)
+                linkedin = verify_and_normalize_link(company_name, linkedin, link_type='linkedin')
                 if not linkedin:
                     print(f"[WARNING][NO LINKEDIN] {company_name} | {pub_date} | {url}")
                 crawl_date = today.isoformat()
