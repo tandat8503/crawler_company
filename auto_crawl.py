@@ -10,7 +10,6 @@ import json
 from dotenv import load_dotenv
 import openai
 import config
-from config import GOOGLE_CSE_API_KEY, GOOGLE_CSE_ID
 import validators
 from googlesearch import search as google_search_lib
 import re
@@ -396,7 +395,7 @@ def load_existing_entries():
         with open(CSV_FILE, 'r', newline='', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                key = (normalize_company_name(row.get('company_name', '')), row.get('raised_date', '').strip())
+                key = (normalize_company_name(row.get('company_name', '')), row.get('article_url', '').strip())
                 entries.add(key)
     return entries
 
@@ -611,7 +610,7 @@ def main():
     print('Crawling TechCrunch Startups (last 10 days)...')
     today = date.today()
     min_date = today - timedelta(days=10)
-    article_links = get_article_links_last_7_days(min_date=min_date, max_pages=50)
+    article_links = get_article_links_last_7_days(min_date=min_date, max_pages=5)
     print(f'Found {len(article_links)} articles.')
     existing_entries = load_existing_entries()
     unique_entries = {}
@@ -642,7 +641,7 @@ def main():
             for company_info in infos:
                 company_name = company_info.get('company_name', '').strip()
                 raised_date = company_info.get('raised_date', '').strip() or pub_date
-                key = (normalize_company_name(company_name), pub_date)
+                key = (normalize_company_name(company_name), url)
                 if not company_name:
                     print(f"[SKIP][NO COMPANY NAME] Title: {title} | Date: {pub_date} | URL: {url}")
                     continue
