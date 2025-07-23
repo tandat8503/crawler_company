@@ -80,6 +80,21 @@ def crawl_today():
         print(f'Saved {len(new_entries)} new entries.')
     else:
         print('No new entries found.')
+        # Ghi chú vào CSV để người dùng biết hôm nay không có tin mới
+        today_str = today.isoformat()
+        with open(CSV_FILE, 'a', newline='', encoding='utf-8') as f:
+            from csv import writer
+            w = writer(f)
+            w.writerow([
+                today_str, # raised_date
+                '---',    # company_name
+                '',       # website
+                '',       # linkedin
+                '',       # article_url
+                'NO_NEWS',# source
+                today_str,# crawl_date
+                f'Không có tin mới ngày {today_str}' # thông báo
+            ])
 
 if __name__ == '__main__':
     crawl_today() 
