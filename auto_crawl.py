@@ -4,8 +4,6 @@ import csv
 import os
 from datetime import datetime, timedelta, date, timezone
 from urllib.parse import urlparse
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
 import json
 from dotenv import load_dotenv
 import openai
