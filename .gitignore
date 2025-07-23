@@ -28,7 +28,6 @@ debug_techcrunch_selenium.html
 *.log
 
 # Data output (nếu không muốn track dữ liệu crawl)
-companies.csv
 funded_companies_aggregated.csv
 
 # Ignore any other sensitive or temp files 

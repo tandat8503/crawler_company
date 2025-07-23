@@ -24,7 +24,7 @@ CSV_FILE = os.path.join(os.path.dirname(__file__), 'companies.csv')
 def crawl_today():
     print('Crawling TechCrunch Startups (today only)...')
     today = date.today()
-    article_links = get_article_links_last_7_days(min_date=today, max_pages=10)
+    article_links = get_article_links_last_7_days(min_date=today, max_pages=3)
     print(f'Found {len(article_links)} articles.')
     existing_entries = load_existing_entries()
     unique_entries = {}
