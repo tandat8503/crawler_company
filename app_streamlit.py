@@ -59,6 +59,10 @@ mask = (
 )
 filtered_df = df[mask]
 
+# Xử lý dòng NO_NEWS
+no_news_rows = filtered_df[filtered_df['source'] == 'NO_NEWS']
+filtered_df = filtered_df[filtered_df['source'] != 'NO_NEWS']
+
 filtered_df = filtered_df.sort_values(by="raised_date_parsed", ascending=False)
 
 def make_clickable(url):
@@ -74,14 +78,21 @@ show_df = show_df[fields]  # Đảm bảo đúng thứ tự
 
 st.write("### Danh sách công ty được raise fund (7 ngày gần nhất)")
 st.write("(Click vào 'Link' để xem bài báo gốc)")
-st.write(
-    show_df.to_html(escape=False, index=False),
-    unsafe_allow_html=True
-)
 
-st.download_button(
-    label="Download filtered CSV",
-    data=filtered_df[fields].to_csv(index=False).encode("utf-8"),
-    file_name="filtered_companies.csv",
-    mime="text/csv"
-)
+if not show_df.empty:
+    st.write(
+        show_df.to_html(escape=False, index=False),
+        unsafe_allow_html=True
+    )
+    st.download_button(
+        label="Download filtered CSV",
+        data=filtered_df[fields].to_csv(index=False).encode("utf-8"),
+        file_name="filtered_companies.csv",
+        mime="text/csv"
+    )
+elif not no_news_rows.empty:
+    # Lấy thông báo từ cột cuối cùng nếu có
+    msg = no_news_rows.iloc[0][-1] if len(no_news_rows.columns) > 7 else "Không có tin mới trong ngày đã chọn."
+    st.info(msg)
+else:
+    st.info("Không có dữ liệu trong khoảng ngày đã chọn.")
