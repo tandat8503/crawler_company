@@ -11,3 +11,8 @@ if not LLM_API_URL:
 
 if not OPENAI_API_KEY:
     raise ValueError("Chưa thiết lập OPENAI_API_KEY trong .env")
+
+CSV_FILE = os.path.join(os.path.dirname(__file__), 'companies.csv')
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (compatible; CompanyFundBot/1.0)'
+}
