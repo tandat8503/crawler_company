@@ -44,52 +44,50 @@ def safe_google_search(query, num_results=5):
         print(f"[ERROR][SAFE GOOGLE SEARCH] {query} | {e}")
     return results
 
+def get_domain_root(url):
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ''
+    hostname = hostname.replace('www.', '')
+    parts = hostname.split('.')
+    if len(parts) > 2:
+        return '.'.join(parts[-2:])
+    elif len(parts) == 2:
+        return '.'.join(parts)
+    else:
+        return parts[0] if parts else ''
+
 def search_google_website(company_name):
-    normalized = normalize_name(company_name)
-    queries = [
-        f"{company_name} official site",
-        f"{company_name} ai",
-        f"{company_name} dev",
-        f"{company_name} technologies"
-    ]
-    for query in queries:
-        found = False
-        try:
-            for url in safe_google_search(query, num_results=5):
-                domain = urlparse(url).netloc
-                slug = domain.split(".")[0]
-                score = fuzz.partial_ratio(slug.lower(), normalized)
-                if score >= 80:
-                    print(f"[GOOGLE][WEBSITE][MATCH] {company_name} | Query: {query} | URL: {url} | slug: {slug} | norm: {normalized} | score: {score}")
-                    return url
-                else:
-                    print(f"[GOOGLE][WEBSITE][NO MATCH] {company_name} | Query: {query} | URL: {url} | slug: {slug} | norm: {normalized} | score: {score}")
-        except Exception as e:
-            print(f"[ERROR][GOOGLESEARCH] {company_name} | Query: {query} | {e}")
-            if '429' in str(e):
-                print('[GOOGLE][BLOCKED] Google đang chặn, hãy thử lại sau hoặc tăng thời gian sleep!')
-        print(f"[GOOGLE][WEBSITE][NO RESULT] {company_name} | Query: {query}")
-    print(f"[GOOGLE][WEBSITE][FAIL] {company_name} | Không tìm được website phù hợp.")
+    query = f"{company_name} site:.energy OR site:.com OR site:.io"
+    urls = safe_google_search(query, num_results=10)
+    main_word = company_name.lower().split()[0]
+    company_norm = normalize_name(company_name)
+    for url in urls:
+        domain_root = get_domain_root(url)
+        norm_domain = domain_root.replace('.', '').replace('-', '')
+        score = fuzz.partial_ratio(company_norm, norm_domain)
+        print(f"[MATCH][WEBSITE] {company_name} vs {domain_root} | score: {score}")
+        # Nhận nếu domain chứa từ khóa chính hoặc score >= 60
+        if main_word in norm_domain or score >= 60:
+            return url
+        # Fallback: kiểm tra title
+        title = fetch_title(url)
+        if title and company_name.lower().replace(' ', '') in title.lower().replace(' ', ''):
+            print(f"[MATCH][WEBSITE][FALLBACK TITLE] {company_name} in title: {title}")
+            return url
     return ""
 
 def search_google_linkedin(company_name, website=None):
-    normalized = normalize_name(company_name)
     query = f"{company_name} site:linkedin.com/company"
-    found = False
-    try:
-        for url in safe_google_search(query, num_results=5):
-            if "linkedin.com/company" in url:
-                slug = url.split("/")[-1]
-                score = fuzz.partial_ratio(slug.lower(), normalized)
-                if score >= 80:
-                    print(f"[GOOGLE][LINKEDIN][MATCH] {company_name} | URL: {url} | slug: {slug} | norm: {normalized} | score: {score}")
-                    return url
-                else:
-                    print(f"[GOOGLE][LINKEDIN][NO MATCH] {company_name} | URL: {url} | slug: {slug} | norm: {normalized} | score: {score}")
-    except Exception as e:
-        print(f"[ERROR][GOOGLESEARCH LINKEDIN] {company_name} | Query: {query} | {e}")
-        if '429' in str(e):
-            print('[GOOGLE][BLOCKED] Google đang chặn, hãy thử lại sau hoặc tăng thời gian sleep!')
+    urls = safe_google_search(query, num_results=10)
+    norm_company = normalize_name(company_name)
+    for url in urls:
+        if "linkedin.com/company" in url:
+            slug = url.rstrip("/").split("/")[-1]
+            norm_slug = normalize_name(slug)
+            score = fuzz.token_set_ratio(norm_company, norm_slug)
+            print(f"[MATCH][LINKEDIN] {company_name} vs {slug} | score: {score}")
+            if score >= 60:
+                return url
     print(f"[GOOGLE][LINKEDIN][FAIL] {company_name} | Không tìm được LinkedIn phù hợp.")
     return ""
 

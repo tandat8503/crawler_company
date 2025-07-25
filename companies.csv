@@ -1,15 +1,39 @@
-raised_date,company_name,website,linkedin,article_url,source,crawl_date
-2025-07-22,Nevoya,,https://www.linkedin.com/company/nevoya,https://techcrunch.com/2025/07/22/nevoya-raises-9-3m-seed-round-as-its-ev-truck-fleet-reaches-cost-parity-with-diesel/,TechCrunch,2025-07-23
-2025-07-22,Lumotive,https://lumotive.com/,https://www.linkedin.com/company/lumotive,https://techcrunch.com/2025/07/22/amazon-backs-programmable-optics-startup-lumotive/,TechCrunch,2025-07-23
-2025-07-22,Mixus,https://mixus.ai/,https://www.linkedin.com/company/mixus-ai,https://techcrunch.com/2025/07/22/this-startup-thinks-email-could-be-the-key-to-usable-ai-agents/,TechCrunch,2025-07-23
-2025-07-22,Asylon,https://asylonrobotics.com/,https://www.linkedin.com/company/asylon,https://techcrunch.com/2025/07/22/robot-guard-dogs-help-asylon-raise-a-26m-series-b/,TechCrunch,2025-07-23
-2025-07-21,Rune Technologies,https://www.runetech.co/,https://www.linkedin.com/company/runetech/,https://techcrunch.com/2025/07/21/anduril-alums-raise-24m-series-a-to-bring-military-logistics-out-of-the-excel-spreadsheet-era/,TechCrunch,2025-07-23
-2025-07-18,Thinking Machines Lab,http://thinking-machines-lab.com/,,https://techcrunch.com/podcast/openai-thinking-machines-lab-and-the-built-in-chaos-of-a-2b-seed-round/,TechCrunch,2025-07-23
-2025-07-17,Hadrian,https://hadrianswallcountry.co.uk/,https://www.linkedin.com/company/hadrianautomation,https://techcrunch.com/2025/07/17/hadrian-raises-260m-to-build-out-automated-factories-for-space-and-defense-parts/,TechCrunch,2025-07-23
-2025-07-17,Boulevard,https://boulevardworld.co/,https://www.linkedin.com/company/boulevard,https://techcrunch.com/2025/07/17/boulevard-raises-80m-to-power-self-care-boom-driven-by-botox-and-glp-1-surge/,TechCrunch,2025-07-23
-2025-07-17,Confident Security,,https://www.linkedin.com/company/confidentsecurity,https://techcrunch.com/2025/07/17/confident-security-the-signal-for-ai-comes-out-of-stealth-with-4-2m/,TechCrunch,2025-07-23
-2025-07-17,Lovable,https://lovable.dev/,https://www.linkedin.com/company/lovable-dev,https://techcrunch.com/2025/07/17/lovable-becomes-a-unicorn-with-200m-series-a-just-8-months-after-launch/,TechCrunch,2025-07-23
-2025-07-16,Bedrock Robotics,https://bedrockrobotics.com/,https://www.linkedin.com/company/bedrock-robotics,https://techcrunch.com/2025/07/16/ex-waymo-engineers-launch-bedrock-robotics-with-80m-to-automate-construction/,TechCrunch,2025-07-23
-2025-07-16,Cambrian Ventures,https://www.cambrian.vc/,https://www.linkedin.com/company/cambrianvc/,https://techcrunch.com/2025/07/16/rex-salisburys-cambrian-ventures-raises-new-fund-bucking-fintech-slowdown/,TechCrunch,2025-07-23
-2025-07-15,Rwazi,https://rwazi.com/,https://www.linkedin.com/company/rwazi,https://techcrunch.com/2025/07/15/rwazi-raises-12m-series-a-to-help-companies-with-consumer-insights-and-intelligence/,TechCrunch,2025-07-23
-2025-07-15,Auriga Space,,https://www.linkedin.com/company/aurigaspace,https://techcrunch.com/2025/07/15/auriga-space-raises-6m-to-shoot-rockets-off-an-electromagnetic-launch-track/,TechCrunch,2025-07-23
+raised_date,company_name,website,linkedin,article_url,source,amount,industry,crawl_date
+2025-07-24,Dispatch Bio,https://dispatchbio.com/,https://www.linkedin.com/company/dispatch-bio,https://www.finsmes.com/2025/07/dispatch-bio-raises-series-a-total-to-216m-in-funding.html,Finsmes,,,2025-07-24
+2025-07-24,Vaudit,,https://www.linkedin.com/company/vaudit,https://www.finsmes.com/2025/07/vaudit-raises-7-3m-in-seed-funding.html,Finsmes,,,2025-07-24
+2025-07-24,UgenticAI,https://ugenticai.com/,https://www.linkedin.com/company/ugenticai,https://www.finsmes.com/2025/07/ugenticai-raises-4m-in-funding.html,Finsmes,,,2025-07-24
+2025-07-24,ArcSpan,,https://www.linkedin.com/company/arcspan,https://www.finsmes.com/2025/07/arcspan-raises-5-2m-in-seed-extension-funding.html,Finsmes,,,2025-07-24
+2025-07-23,Volca,,https://www.linkedin.com/company/volca-ai,https://www.finsmes.com/2025/07/volca-raises-5-5m-in-seed-funding.html,Finsmes,,,2025-07-24
+2025-07-23,Vanta,,https://fr.linkedin.com/company/vanta-global,https://www.finsmes.com/2025/07/vanta-raises-150m-in-series-d-funding.html,Finsmes,,,2025-07-24
+2025-07-23,Olto,,https://www.linkedin.com/company/olto,https://www.finsmes.com/2025/07/olto-raises-5-1m-in-pre-seed-funding.html,Finsmes,,,2025-07-24
+2025-07-23,april,,https://sg.linkedin.com/company/april,https://www.finsmes.com/2025/07/april-raises-38m-in-series-b-funding.html,Finsmes,,,2025-07-24
+2025-07-23,Estes Energy,,https://www.linkedin.com/company/estes-energy,https://www.finsmes.com/2025/07/estes-energy-raises-11m-in-seed-funding.html,Finsmes,,,2025-07-24
+2025-07-23,Dash Bio,https://dashbio.com/,,https://www.finsmes.com/2025/07/dash-bio-raises-11m-in-funding.html,Finsmes,,,2025-07-24
+2025-07-23,Swift Navigation,,https://www.linkedin.com/company/swift-navigation,https://www.finsmes.com/2025/07/swift-navigation-raises-50m-in-series-e-funding.html,Finsmes,,,2025-07-24
+2025-07-23,Capitalize.io,,https://www.linkedin.com/company/capitalize-io,https://www.finsmes.com/2025/07/capitalize-io-raises-seed-funding.html,Finsmes,,,2025-07-24
+2025-07-23,Scrunch AI,https://scrunchai.com/,,https://www.finsmes.com/2025/07/scrunch-ai-raises-15m-in-series-a-funding.html,Finsmes,,,2025-07-24
+2025-07-22,Glīd Technologies,,,https://www.finsmes.com/2025/07/glid-technologies-closes-3-1m-pre-seed-funding-round.html,Finsmes,,,2025-07-24
+2025-07-22,Poseidon,https://buffetposeidon.com/gia-buffet,https://www.linkedin.com/company/poseidon-food/,https://www.finsmes.com/2025/07/poseidon-raises-15m-in-seed-funding.html,Finsmes,,,2025-07-24
+2025-07-22,Cooler Heads,https://coolerheads.com/,https://www.linkedin.com/company/cooler-heads-technology,https://www.finsmes.com/2025/07/cooler-heads-raises-11m-in-series-a-funding.html,Finsmes,,,2025-07-24
+2025-07-22,Phlow,https://phlowapp.com/,,https://www.finsmes.com/2025/07/phlow-raises-37m-in-series-c-funding.html,Finsmes,,,2025-07-24
+2025-07-22,ValGenesis,,https://www.linkedin.com/company/valgenesis-inc,https://www.finsmes.com/2025/07/valgenesis-raises-16m-in-funding.html,Finsmes,,,2025-07-24
+2025-07-22,Yieldstreet,,https://www.linkedin.com/company/yieldstreet-inc,https://www.finsmes.com/2025/07/yieldstreet-raises-77m-in-new-capital.html,Finsmes,,,2025-07-24
+2025-05-22,Lumotive,https://lumotive.com/,https://www.linkedin.com/company/lumotive,https://www.finsmes.com/2025/07/lumotive-receives-investment-from-amazon-and-ithca.html,Finsmes,,,2025-07-24
+"July 22, 2025",Nevoya,,https://www.linkedin.com/company/nevoya,https://www.finsmes.com/2025/07/nevoya-raises-9-3m-in-seed-funding.html,Finsmes,,,2025-07-24
+2025-07-22,Delve,https://delvetool.com/,,https://www.finsmes.com/2025/07/delve-raises-32m-in-series-a-funding.html,Finsmes,,,2025-07-24
+2025-07-22,BetterComp,,https://www.linkedin.com/company/bettercomp,https://www.finsmes.com/2025/07/bettercomp-raises-33m-in-series-a-funding.html,Finsmes,,,2025-07-24
+2025-07-22,CandorIQ,,https://www.linkedin.com/company/candoriq,https://www.finsmes.com/2025/07/candoriq-raises-4-8m-in-seed-funding.html,Finsmes,,,2025-07-24
+2025-07-22,"Asylon, Inc.",,https://www.linkedin.com/company/asylon,https://www.finsmes.com/2025/07/asylon-robotics-raises-24m-in-series-b-funding.html,Finsmes,,,2025-07-24
+2025-07-22,AbsoluteCare,,https://www.linkedin.com/company/absolutecare,https://www.finsmes.com/2025/07/absolutecare-raises-135m-in-funding.html,Finsmes,,,2025-07-24
+2025-07-22,xLight,http://xlightvietnam.com/,https://www.linkedin.com/company/xlight-inc,https://www.finsmes.com/2025/07/xlight-raises-40m-in-series-b-funding.html,Finsmes,,,2025-07-24
+2025-07-22,ShelterZoom,https://shelterzoom.com/,https://www.linkedin.com/company/shelterzoom,https://www.finsmes.com/2025/07/shelterzoom-raises-30m-in-total-funding.html,Finsmes,,,2025-07-24
+2025-07-21,Rune Technologies,,,https://www.finsmes.com/2025/07/rune-technologies-raises-24m-in-series-a-funding.html,Finsmes,,,2025-07-24
+2025-07-21,Fortuna Health,,https://www.linkedin.com/company/fortuna-health,https://www.finsmes.com/2025/07/fortuna-health-raises-18m-in-series-a-funding.html,Finsmes,,,2025-07-24
+2025-07-21,Nexxa.ai,https://discovernexxa.com/,https://www.linkedin.com/company/nexxa-ai,https://www.finsmes.com/2025/07/nexxa-ai-raises-4-4m-in-pre-seed-funding.html,Finsmes,,,2025-07-24
+2025-07-21,LeadStory,,,https://www.finsmes.com/2025/07/leadstory-raises-2-75m-in-seed-funding.html,Finsmes,,,2025-07-24
+"July 20, 2025",Radical AI,,,https://www.finsmes.com/2025/07/radical-ai-raises-55m-in-seed-funding.html,Finsmes,,,2025-07-24
+"July 18, 2025",ghSMART,https://ghsmart.com/,https://www.linkedin.com/company/ghsmart,https://www.finsmes.com/2025/07/ghsmart-receives-minority-investment-from-kkr.html,Finsmes,,,2025-07-24
+"July 18, 2025",The Riverside Company,,https://www.linkedin.com/company/the-riverside-company,https://www.finsmes.com/2025/07/the-riverside-company-closes-value-fund-ii-at-750m.html,Finsmes,,,2025-07-24
+"July 18, 2025",Hootology,https://hootology.com/,https://www.linkedin.com/company/hootology,https://www.finsmes.com/2025/07/hootology-raises-1-1m-in-pre-seed-funding.html,Finsmes,,,2025-07-24
+"July 18, 2025",StayTerra,https://stayterravaca.com/,https://www.linkedin.com/company/stayterra,https://www.finsmes.com/2025/07/stayterra-raises-additional-funding.html,Finsmes,,,2025-07-24
+"July 18, 2025",EPR Fireworks,,,https://www.finsmes.com/2025/07/epr-fireworks-receives-growth-investment-from-frontier-growth.html,Finsmes,,,2025-07-24

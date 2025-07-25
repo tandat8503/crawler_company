@@ -32,6 +32,9 @@ from search_utils import (
     find_company_linkedin_llm, verify_link_with_google, get_whitelisted_links
 )
 import time
+def is_valid_url(url):
+    import validators
+    return validators.url(url)
 
 CSV_FILE = config.CSV_FILE
 TECHCRUNCH_URL = 'https://techcrunch.com/category/startups/'
@@ -76,7 +79,7 @@ def get_article_links_last_7_days(min_date=None, max_pages=5):
     links = []
     today = datetime.now(timezone.utc).date()
     if min_date is None:
-        min_date = today - timedelta(days=7)
+        min_date = today - timedelta(days=3)
     for page in range(1, max_pages+1):
         page_url = f"https://techcrunch.com/category/startups/page/{page}/"
         print(f"[INFO] Crawling page {page}: {page_url}")
@@ -314,10 +317,112 @@ def extract_funding_info_llm(article_text):
             result['linkedin'] = search_google_linkedin(company_name)
     return result
 
+def extract_candidate_paragraphs(article_text):
+    """
+    Return the first 2 paragraphs (split by double newlines or periods) as candidate text for LLM extraction.
+    """
+    if not article_text:
+        return ""
+    paras = [p.strip() for p in article_text.split('\n') if p.strip()]
+    if len(paras) >= 2:
+        return '\n'.join(paras[:2])
+    # fallback: try splitting by period
+    sentences = article_text.split('.')
+    return '.'.join(sentences[:4])
+
+
+def extract_article_links_and_context(soup, company_name):
+    """
+    Trích xuất tất cả các anchor (<a>) trong bài viết, cùng context xung quanh (1-2 câu trước/sau anchor).
+    Trả về list dict: {url, anchor_text, context, domain, company_norm}
+    """
+    results = []
+    company_norm = normalize_company_name(company_name)
+    for a in soup.find_all('a', href=True):
+        url = a['href']
+        anchor_text = a.get_text(strip=True)
+        # Lấy context: 1-2 câu trước/sau anchor
+        parent = a.parent
+        context = ''
+        if parent:
+            text = parent.get_text(separator=' ', strip=True)
+            idx = text.find(anchor_text)
+            if idx != -1:
+                before = text[:idx].strip().split('.')[-1]
+                after = text[idx+len(anchor_text):].strip().split('.')[0]
+                context = f"{before} [{anchor_text}] {after}".strip()
+            else:
+                context = text
+        domain = urlparse(url).netloc.lower()
+        results.append({
+            'url': url,
+            'anchor_text': anchor_text,
+            'context': context,
+            'domain': domain,
+            'company_norm': company_norm
+        })
+    return results
+
+def extract_best_links_from_anchors(links_context, company_name):
+    """
+    Ưu tiên lấy website/linkedin từ các anchor đã crawl được.
+    - Website: domain chứa từ khóa công ty hoặc anchor/context chứa 'website', 'official', 'homepage'
+    - LinkedIn: domain chứa 'linkedin.com' hoặc anchor/context chứa 'linkedin'
+    """
+    company_norm = normalize_company_name(company_name)
+    website = ''
+    linkedin = ''
+    for link in links_context:
+        url = link['url']
+        anchor = link['anchor_text'].lower()
+        context = link['context'].lower()
+        domain = link['domain']
+        # Website
+        if (company_norm in domain.replace('.', '') or any(x in anchor or x in context for x in ['website', 'official', 'homepage'])) and not website:
+            website = url
+        # LinkedIn
+        if ('linkedin.com' in domain or 'linkedin' in anchor or 'linkedin' in context) and not linkedin:
+            linkedin = url
+    return website, linkedin
+
+
+def extract_article_links_and_context(soup, company_name):
+    """
+    Trích xuất tất cả các anchor (<a>) trong bài viết, cùng context xung quanh (1-2 câu trước/sau anchor).
+    Trả về list dict: {url, anchor_text, context, domain, company_norm}
+    """
+    results = []
+    company_norm = normalize_company_name(company_name)
+    for a in soup.find_all('a', href=True):
+        url = a['href']
+        anchor_text = a.get_text(strip=True)
+        # Lấy context: 1-2 câu trước/sau anchor
+        parent = a.parent
+        context = ''
+        if parent:
+            text = parent.get_text(separator=' ', strip=True)
+            idx = text.find(anchor_text)
+            if idx != -1:
+                before = text[:idx].strip().split('.')[-1]
+                after = text[idx+len(anchor_text):].strip().split('.')[0]
+                context = f"{before} [{anchor_text}] {after}".strip()
+            else:
+                context = text
+        domain = urlparse(url).netloc.lower()
+        results.append({
+            'url': url,
+            'anchor_text': anchor_text,
+            'context': context,
+            'domain': domain,
+            'company_norm': company_norm
+        })
+    return results
+
 
 def extract_company_info(article_url):
     """
     Extract company name, website, and date from a TechCrunch article.
+    Ưu tiên lấy website/linkedin từ anchor, nếu không có thì dùng LLM, nếu vẫn không có thì fallback Google.
     """
     try:
         resp = requests.get(article_url, headers=HEADERS, timeout=10)
@@ -327,12 +432,56 @@ def extract_company_info(article_url):
         article_text = ""
         if article_body:
             paragraphs = article_body.find_all('p')
-            article_text = " ".join(p.get_text() for p in paragraphs[:3])  # Lấy 3 đoạn đầu
-        # Gọi LLM để trích xuất tên công ty
-        info = extract_funding_info_llm(article_text)
-        company_name = info.get("company_name", "") if info else ""
-        website = info.get("website", "") if info else ""
-        linkedin = info.get("linkedin", "") if info else ""
+            article_text = " ".join(p.get_text() for p in paragraphs)
+        # 1. Ưu tiên lấy link từ anchor
+        company_name = ''
+        website = ''
+        linkedin = ''
+        links_context = extract_article_links_and_context(soup, company_name)
+        website, linkedin = extract_best_links_from_anchors(links_context, company_name)
+        # 2. Nếu chưa có, dùng LLM với prompt mới
+        if not website or not linkedin:
+            prompt = (
+                "You are a startup analyst. Below is a news article about a startup. Extract:\n"
+                "- Official website (if mentioned)\n"
+                "- Official LinkedIn profile (if mentioned)\n"
+                "- If not explicitly mentioned, use reasoning to infer possible URLs\n\n"
+                f"Article:\n\"\"\"\n{article_text}\n\"\"\"\n"
+                f"Links in article: {links_context}\n"
+                "Return result in JSON:\n{\n  'company_name': '', 'website': '', 'linkedin': '', 'confidence': 'high/medium/low', 'reasoning': ''\n}"
+            )
+            response = openai.chat.completions.create(
+                model=config.LLM_MODEL_ID,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=256,
+                temperature=0
+            )
+            import json, re
+            content = response.choices[0].message.content.strip()
+            try:
+                result = json.loads(content)
+            except Exception as e:
+                match = re.search(r'\{.*\}', content, re.DOTALL)
+                if match:
+                    try:
+                        result = json.loads(match.group(0))
+                    except Exception:
+                        result = None
+                else:
+                    print(f"LLM JSON parse error: {e}\nLLM content: {content}")
+                    result = None
+            if result:
+                company_name = result.get('company_name', '').strip()
+                if not website:
+                    website = result.get('website', '').strip()
+                if not linkedin:
+                    linkedin = result.get('linkedin', '').strip()
+                print(f"[LLM][REASONING] {company_name} | confidence: {result.get('confidence', '')} | reasoning: {result.get('reasoning', '')}")
+        # 3. Nếu vẫn không có, fallback Google
+        if not website and company_name:
+            website = search_google_website(company_name)
+        if not linkedin and company_name:
+            linkedin = search_google_linkedin(company_name)
         # Lấy ngày đăng bài
         date_tag = soup.find('time')
         if date_tag and date_tag.has_attr('datetime'):
@@ -728,7 +877,7 @@ def is_good_linkedin_match(company_name, linkedin_url):
 
 def crawl_techcrunch():
     today = date.today()
-    min_date = today - timedelta(days=7)
+    min_date = today - timedelta(days=3)
     article_links = get_article_links_last_7_days(min_date=min_date, max_pages=5)
     print(f'Found {len(article_links)} TechCrunch articles.')
     existing_entries = load_existing_entries()
@@ -796,7 +945,7 @@ def crawl_techcrunch():
 
 def crawl_finsmes():
     today = date.today()
-    min_date = today - timedelta(days=7)
+    min_date = today - timedelta(days=3)
     finsmes_articles = crawl_finsmes_usa(max_pages=5)
     print(f'Found {len(finsmes_articles)} Finsmes articles.')
     existing_entries = load_existing_entries()
