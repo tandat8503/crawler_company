@@ -77,7 +77,7 @@ def deduplicate_csv(CSV_FILE):
         return
     fieldnames = ['raised_date', 'company_name', 'website', 'linkedin', 'article_url', 'source', 'amount', 'industry', 'crawl_date']
     df = pd.read_csv(CSV_FILE)
-    df = df.drop_duplicates(subset=["company_name", "article_url"], keep="first")
+    df = df.drop_duplicates(subset=["company_name", "raised_date", "article_url"], keep="first")
     df.to_csv(CSV_FILE, index=False)
     print(f"[INFO][DEDUP] Saved {len(df)} unique entries to {CSV_FILE}")
 
@@ -89,6 +89,7 @@ def load_existing_entries(CSV_FILE):
             for row in reader:
                 key = (
                     normalize_company_name(row.get('company_name', '')),
+                    normalize_date(row.get('raised_date', '')),
                     row.get('article_url', '').strip()
                 )
                 entries[key] = row.get('source', '')
@@ -129,4 +130,4 @@ def verify_and_normalize_link(company_name, link, link_type='website'):
         except Exception:
             pass
         return ""
-    return "" 
+    return ""

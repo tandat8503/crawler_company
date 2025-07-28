@@ -15,13 +15,13 @@ from collections import OrderedDict
 try:
     from thefuzz import fuzz
 except ImportError:
-    print('[WARNING] thefuzz chưa được cài đặt. Hãy chạy: pip install thefuzz')
+    print('[WARNING] thefuzz is not installed. Please run: pip install thefuzz')
     fuzz = None
 
 import pandas as pd
-from extractors import (
-    extract_article_detail, extract_company_name_and_raised_date_llm, extract_funding_info_llm,
-    extract_finsmes_article_detail, is_funding_article_llm, extract_possible_company_website, is_negative_news
+from llm_utils import (
+    extract_company_name_and_raised_date_llm, extract_funding_info_llm,
+    is_funding_article_llm, is_negative_news
 )
 from deduplication import (
     normalize_company_name, normalize_amount, normalize_date, deduplicate_csv,
@@ -32,50 +32,33 @@ from search_utils import (
     find_company_linkedin_llm, verify_link_with_google, get_whitelisted_links
 )
 import time
-def is_valid_url(url):
-    import validators
-    return validators.url(url)
 
 CSV_FILE = config.CSV_FILE
 TECHCRUNCH_URL = 'https://techcrunch.com/category/startups/'
 HEADERS = config.HEADERS
 
-# Load API key từ config hoặc .env
+# Load API key from config or .env
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-def check_common_errors():
-    import sys
-    # 1. Kiểm tra import json
-    if 'json' not in sys.modules:
-        try:
-            import json
-            print('[TOOL CALL] Đã tự động import json.')
-        except ImportError:
-            print('[TOOL CALL][ERROR] Không thể import json. Hãy cài đặt lại Python!')
-    # 2. Kiểm tra lỗi parse JSON từ LLM (giả lập)
+def get_domain_root(url):
     try:
-        import json
-        test = json.loads('{"a": 1}')
-    except Exception as e:
-        print(f'[TOOL CALL][ERROR] Lỗi parse JSON: {e}')
-    # 3. Kiểm tra lỗi truy cập thuộc tính của None
-    try:
-        none_obj = None
-        none_obj.get('a')
-    except AttributeError:
-        print('[TOOL CALL] Đã phát hiện lỗi truy cập thuộc tính của None. Hãy kiểm tra lại kết quả trả về từ LLM hoặc các hàm extract.')
-    except Exception as e:
-        print(f'[TOOL CALL][ERROR] Lỗi không xác định khi truy cập thuộc tính của None: {e}')
-
-# Gọi tool call này ở đầu script
-check_common_errors()
+        parsed = urlparse(url)
+        host = parsed.netloc.replace('www.', '')
+        parts = host.split('.')
+        if len(parts) >= 2:
+            return f"{parts[-2]}.{parts[-1]}"
+        return host
+    except Exception:
+        return ""
 
 def get_article_links_last_7_days(min_date=None, max_pages=5):
     """
-    Crawl TechCrunch Startups page, lấy tất cả bài trong khoảng ngày [min_date, today], dừng khi toàn bộ bài trên page đều cũ hơn min_date.
-    Sử dụng requests + BeautifulSoup, không dùng Selenium.
+    Crawl TechCrunch Startups page, get all articles in the date range [min_date, today], stop when all articles on the page are older than min_date.
+    Use requests + BeautifulSoup, do not use Selenium.
+    Updated to support new TechCrunch HTML structure (2023+)
     """
+    import logging
     links = []
     today = datetime.now(timezone.utc).date()
     if min_date is None:
@@ -90,26 +73,51 @@ def get_article_links_last_7_days(min_date=None, max_pages=5):
             print(f"[ERROR] Failed to fetch page {page}: {e}")
             break
         soup = BeautifulSoup(resp.text, 'html.parser')
+        # New selector: article.wp-block-tc2023-post-card
+        cards = soup.find_all('article', class_='wp-block-tc2023-post-card')
+        print(f"Page {page}: Found {len(cards)} articles with 'wp-block-tc2023-post-card'")
+        # Fallbacks
+        if not cards:
+            cards = soup.find_all('div', class_='wp-block-techcrunch-card')
+            print(f"Page {page}: Found {len(cards)} cards with 'wp-block-techcrunch-card' (fallback)")
+        if not cards:
+            cards = soup.find_all('article')
+            print(f"Page {page}: Found {len(cards)} generic 'article' tags (fallback)")
+        if not cards:
+            cards = soup.find_all('div', class_=lambda x: x and 'card' in x)
+            print(f"Page {page}: Found {len(cards)} divs with 'card' in class (fallback)")
+        if not cards:
+            print(f"[WARNING] No article cards found on page {page}. Check selector.")
         all_older = True
-        for card in soup.find_all('div', class_='wp-block-techcrunch-card'):
-            content = card.find('div', class_='loop-card__content')
-            if content:
-                h3 = content.find('h3', class_='loop-card__title')
-                if h3:
-                    a_tag = h3.find('a', class_='loop-card__title-link', href=True)
-                    if a_tag:
-                        url = a_tag['href']
-                        time_tag = content.find('time')
-                        if time_tag and time_tag.has_attr('datetime'):
-                            try:
-                                pub_date = datetime.fromisoformat(time_tag['datetime'].replace('Z', '+00:00')).date()
-                            except Exception:
-                                pub_date = today
-                        else:
-                            pub_date = today
-                        if min_date <= pub_date <= today:
-                            links.append((url, pub_date.isoformat()))
-                            all_older = False
+        for card in cards:
+            # New selector for link: h2.wp-block-tc2023-post-card__title > a
+            h2 = card.find('h2', class_='wp-block-tc2023-post-card__title')
+            a_tag = h2.find('a') if h2 else None
+            if not a_tag:
+                # Fallback to old selector
+                content = card.find('div', class_='loop-card__content')
+                h3 = content.find('h3', class_='loop-card__title') if content else None
+                a_tag = h3.find('a', class_='loop-card__title-link', href=True) if h3 else None
+            if a_tag:
+                url = a_tag['href']
+                print(f"Found URL: {url}")
+                # New selector for time
+                time_tag = card.find('time')
+                if time_tag and time_tag.has_attr('datetime'):
+                    try:
+                        pub_date = datetime.fromisoformat(time_tag['datetime'].replace('Z', '+00:00')).date()
+                        print(f"Found date: {pub_date} from datetime: {time_tag['datetime']}")
+                    except Exception as e:
+                        print(f"Error parsing date: {e}")
+                        pub_date = today
+                else:
+                    print("No time tag found with datetime attribute, using today's date")
+                    pub_date = today
+                if min_date <= pub_date <= today:
+                    links.append((url, pub_date.isoformat()))
+                    all_older = False
+            else:
+                print("No main article link (a_tag) found in card")
         if all_older:
             break
     return links
@@ -118,16 +126,16 @@ def get_article_links_last_7_days(min_date=None, max_pages=5):
 def extract_article_detail(url):
     resp = requests.get(url, headers=HEADERS, timeout=10)
     soup = BeautifulSoup(resp.text, 'html.parser')
-    # Tiêu đề
+    # Title
     title_tag = soup.find('h1')
     title = title_tag.get_text(strip=True) if title_tag else ""
-    # Nội dung
+    # Content
     content_div = soup.find('div', class_='entry-content')
     article_text = ""
     if content_div:
         paragraphs = content_div.find_all('p')
         article_text = " ".join(p.get_text() for p in paragraphs)
-    # Ngày đăng
+    # Publication date
     time_tag = soup.find('time')
     if time_tag and time_tag.has_attr('datetime'):
         try:
@@ -185,10 +193,10 @@ def find_company_website_llm(company_name, context=""):
     url = response.choices[0].message.content.strip()
     if is_valid_url(url):
         print(f"[DEBUG][LLM WEBSITE] {company_name} | {url}")
-        return url, False  # False = không mơ hồ
+        return url, False  # False = ambiguous
     if url.lower() != 'unknown':
         print(f"[DEBUG][LLM WEBSITE GUESS] {company_name} | {url}")
-        return url, True  # True = mơ hồ
+        return url, True  # True = ambiguous
     return '', True
 
 
@@ -222,7 +230,7 @@ def is_negative_news(article_text):
         'liquidate', 'liquidated', 'liquidating', 'collapse', 'scam', 'debt', 'default', 'insolvency',
         'winding up', 'dissolve', 'dissolved', 'dissolving', 'cease operations', 'ceasing operations',
         'shutter', 'shuttered', 'shuttering', 'closure', 'closed', 'closing', 'shut down', 'shutting down',
-        # Loại trừ các bài báo về IPO
+        # Exclude IPO articles
         'ipo', 'initial public offering', 'public listing', 'go public', 'roadshow ipo', 'filed for ipo', 
         'files for ipo', 'plans ipo', 'prepares ipo', 'preparing ipo', 'ipo roadshow', 'ipo filing', 
         'ipo debut', 'ipo launch', 'ipo process', 'ipo date', 'ipo price', 'ipo shares', 'ipo valuation', 
@@ -241,7 +249,7 @@ def is_negative_news(article_text):
     return any(kw in text for kw in negative_keywords)
 
 
-# Tối ưu prompt LLM cho is_funding_article_llm
+# Optimize LLM prompt for is_funding_article_llm
 
 def is_funding_article_llm(article_text, debug=False):
     prompt = (
@@ -271,18 +279,18 @@ def is_funding_article_llm(article_text, debug=False):
 
 
 def extract_funding_info_llm(article_text):
-    # 1. Tách đoạn chứa entity
+    # 1. Extract entity segment
     candidate_text = extract_candidate_paragraphs(article_text)
-    # 2. Prompt rõ ràng
+    # 2. Clear prompt
     prompt = (
-        "Hãy trích xuất thông tin sau từ đoạn văn:\n"
-        "1. Tên công ty được thành lập mới hoặc vừa gọi vốn\n"
-        "2. Website chính thức (nếu không có trong đoạn, hãy để trống)\n"
-        "3. Link LinkedIn của công ty (nếu không có trong đoạn, hãy để trống)\n"
-        "4. Ngày công ty gọi vốn (nếu có, định dạng YYYY-MM-DD, nếu không có thì để trống)\n"
-        "Kết quả trả về ở định dạng JSON với các key: company_name, website, linkedin, raised_date.\n"
-        "Chỉ trả về JSON, không giải thích gì thêm.\n\n"
-        f"Đoạn văn:\n{candidate_text}\n\nJSON:"
+        "Please extract the following information from the paragraph:\n"
+        "1. The newly established or recently raised capital company name\n"
+        "2. The official website (if not in the paragraph, leave empty)\n"
+        "3. The company's LinkedIn profile (if not in the paragraph, leave empty)\n"
+        "4. The date the company raised funds (if available, in YYYY-MM-DD format, else empty)\n"
+        "The result should be returned in JSON format with keys: company_name, website, linkedin, raised_date.\n"
+        "Only return JSON, nothing else.\n\n"
+        f"Paragraph:\n{candidate_text}\n\nJSON:"
     )
     response = openai.chat.completions.create(
         model=config.LLM_MODEL_ID,
@@ -304,7 +312,7 @@ def extract_funding_info_llm(article_text):
         else:
             print(f"LLM JSON parse error: {e}\nLLM content: {content}")
             result = None
-    # 3. Fallback search nếu thiếu website/linkedin
+    # 3. Fallback search if website/linkedin is missing
     if result:
         company_name = result.get('company_name', '').strip()
         # Fallback website
@@ -333,15 +341,15 @@ def extract_candidate_paragraphs(article_text):
 
 def extract_article_links_and_context(soup, company_name):
     """
-    Trích xuất tất cả các anchor (<a>) trong bài viết, cùng context xung quanh (1-2 câu trước/sau anchor).
-    Trả về list dict: {url, anchor_text, context, domain, company_norm}
+    Extract all anchor tags (<a>) in the article, along with surrounding context (1-2 sentences before/after anchor).
+    Return a list of dicts: {url, anchor_text, context, domain, company_norm}
     """
     results = []
     company_norm = normalize_company_name(company_name)
     for a in soup.find_all('a', href=True):
         url = a['href']
         anchor_text = a.get_text(strip=True)
-        # Lấy context: 1-2 câu trước/sau anchor
+        # Get context: 1-2 sentences before/after anchor
         parent = a.parent
         context = ''
         if parent:
@@ -365,38 +373,58 @@ def extract_article_links_and_context(soup, company_name):
 
 def extract_best_links_from_anchors(links_context, company_name):
     """
-    Ưu tiên lấy website/linkedin từ các anchor đã crawl được.
-    - Website: domain chứa từ khóa công ty hoặc anchor/context chứa 'website', 'official', 'homepage'
-    - LinkedIn: domain chứa 'linkedin.com' hoặc anchor/context chứa 'linkedin'
+    Optimize selection of website/linkedin from crawled anchors.
+    - Website: Prioritize fuzzy match with company name, common domains (.com, .ai, .io, ...)
+    - LinkedIn: Domain contains 'linkedin.com' or anchor/context contains 'linkedin'
     """
-    company_norm = normalize_company_name(company_name)
+    from thefuzz import fuzz
+    company_norm = company_name.lower().replace(" ", "")
     website = ''
     linkedin = ''
+    best_score = 0
+    best_url = ''
+    # Website
     for link in links_context:
         url = link['url']
-        anchor = link['anchor_text'].lower()
-        context = link['context'].lower()
+        anchor = link['anchor_text'].strip().lower()
+        context = link['context'].strip().lower()
         domain = link['domain']
-        # Website
-        if (company_norm in domain.replace('.', '') or any(x in anchor or x in context for x in ['website', 'official', 'homepage'])) and not website:
-            website = url
-        # LinkedIn
+        # Prioritize LinkedIn
         if ('linkedin.com' in domain or 'linkedin' in anchor or 'linkedin' in context) and not linkedin:
             linkedin = url
+        # Fuzzy match anchor/context with company name
+        anchor_norm = anchor.replace(" ", "")
+        context_norm = context.replace(" ", "")
+        score_anchor = fuzz.partial_ratio(company_norm, anchor_norm)
+        score_context = fuzz.partial_ratio(company_norm, context_norm)
+        # Prioritize common domains
+        is_good_domain = any(domain.endswith(ext) for ext in ['.com', '.ai', '.io', '.co', '.org'])
+        # Select website if good match
+        if (score_anchor >= 80 or score_context >= 80) and is_good_domain:
+            if max(score_anchor, score_context) > best_score:
+                best_score = max(score_anchor, score_context)
+                best_url = url
+        # If anchor is company name and domain is valid
+        elif anchor == company_name.lower() and is_good_domain:
+            if 100 > best_score:
+                best_score = 100
+                best_url = url
+    if best_url:
+        website = best_url
     return website, linkedin
 
 
 def extract_article_links_and_context(soup, company_name):
     """
-    Trích xuất tất cả các anchor (<a>) trong bài viết, cùng context xung quanh (1-2 câu trước/sau anchor).
-    Trả về list dict: {url, anchor_text, context, domain, company_norm}
+    Extract all anchor tags (<a>) in the article, along with surrounding context (1-2 sentences before/after anchor).
+    Return a list of dicts: {url, anchor_text, context, domain, company_norm}
     """
     results = []
     company_norm = normalize_company_name(company_name)
     for a in soup.find_all('a', href=True):
         url = a['href']
         anchor_text = a.get_text(strip=True)
-        # Lấy context: 1-2 câu trước/sau anchor
+        # Get context: 1-2 sentences before/after anchor
         parent = a.parent
         context = ''
         if parent:
@@ -422,38 +450,42 @@ def extract_article_links_and_context(soup, company_name):
 def extract_company_info(article_url):
     """
     Extract company name, website, and date from a TechCrunch article.
-    Ưu tiên lấy website/linkedin từ anchor, nếu không có thì dùng LLM, nếu vẫn không có thì fallback Google.
+    Prioritize website/linkedin from anchor, if not available, use LLM, if still not available, fallback Google.
     """
     try:
         resp = requests.get(article_url, headers=HEADERS, timeout=10)
         soup = BeautifulSoup(resp.text, 'html.parser')
-        # Lấy nội dung bài báo
+        # Get article content
         article_body = soup.find('div', class_='entry-content')
         article_text = ""
         if article_body:
             paragraphs = article_body.find_all('p')
             article_text = " ".join(p.get_text() for p in paragraphs)
-        # 1. Ưu tiên lấy link từ anchor
+        # 1. Prioritize getting link from anchor
         company_name = ''
         website = ''
         linkedin = ''
         links_context = extract_article_links_and_context(soup, company_name)
         website, linkedin = extract_best_links_from_anchors(links_context, company_name)
-        # 2. Nếu chưa có, dùng LLM với prompt mới
+        # 2. If not available, use LLM with new prompt
         if not website or not linkedin:
             prompt = (
-                "You are a startup analyst. Below is a news article about a startup. Extract:\n"
-                "- Official website (if mentioned)\n"
-                "- Official LinkedIn profile (if mentioned)\n"
-                "- If not explicitly mentioned, use reasoning to infer possible URLs\n\n"
-                f"Article:\n\"\"\"\n{article_text}\n\"\"\"\n"
+                "You are a startup analyst. Below is a news article about a startup. Your task:\n"
+                "- Extract the official website (if mentioned in the article, or in any anchor/link).\n"
+                "- Extract the official LinkedIn profile (if mentioned in the article, or in any anchor/link).\n"
+                "- If not explicitly mentioned, use reasoning to infer the most likely official website and LinkedIn profile for the company, based on the company name and context.\n"
+                "- If you cannot find the website, try to guess up to 3 possible domains based on the company name (e.g. alix.com, alix.ai, getalix.com, alixofficial.com, ...), and rank them by likelihood.\n"
+                "- For each guess, explain your reasoning.\n"
+                "- If you cannot find the LinkedIn, try to guess the most likely LinkedIn URL (e.g. https://www.linkedin.com/company/alix-ai/).\n"
+                "- Return your answer in JSON format, including:\n"
+                "  {\n    'company_name': '',\n    'website': '',\n    'website_guesses': ['', '', ''],\n    'linkedin': '',\n    'linkedin_guess': '',\n    'confidence': 'high/medium/low',\n    'reasoning': ''\n  }\n"
+                f"\nArticle:\n\"\"\"{article_text}\"\"\"\n"
                 f"Links in article: {links_context}\n"
-                "Return result in JSON:\n{\n  'company_name': '', 'website': '', 'linkedin': '', 'confidence': 'high/medium/low', 'reasoning': ''\n}"
             )
             response = openai.chat.completions.create(
                 model=config.LLM_MODEL_ID,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=256,
+                max_tokens=512,
                 temperature=0
             )
             import json, re
@@ -474,15 +506,51 @@ def extract_company_info(article_url):
                 company_name = result.get('company_name', '').strip()
                 if not website:
                     website = result.get('website', '').strip()
+                    # If website is still empty, try to get from website_guesses
+                    if not website:
+                        guesses = result.get('website_guesses', [])
+                        if guesses and isinstance(guesses, list):
+                            website = guesses[0].strip() if guesses[0] else ''
                 if not linkedin:
                     linkedin = result.get('linkedin', '').strip()
+                    if not linkedin:
+                        linkedin = result.get('linkedin_guess', '').strip()
                 print(f"[LLM][REASONING] {company_name} | confidence: {result.get('confidence', '')} | reasoning: {result.get('reasoning', '')}")
-        # 3. Nếu vẫn không có, fallback Google
+        # 3. If still not available, fallback Google with multiple variations of query
+        def google_search_variants(company_name, type_):
+            from search_utils import safe_google_search
+            queries = []
+            if type_ == 'website':
+                queries = [
+                    f"{company_name} official site",
+                    f"{company_name} ai",
+                    f"{company_name} homepage",
+                    f"{company_name} {company_name.split()[-1]}",
+                    f"{company_name} site:.ai OR site:.com OR site:.io",
+                ]
+            elif type_ == 'linkedin':
+                queries = [
+                    f"{company_name} site:linkedin.com/company",
+                    f"{company_name} linkedin",
+                    f"{company_name} ai linkedin",
+                ]
+            for query in queries:
+                urls = safe_google_search(query, num_results=8)
+                if urls:
+                    return urls
+            return []
         if not website and company_name:
-            website = search_google_website(company_name)
+            # Try multiple Google query variations
+            urls = google_search_variants(company_name, 'website')
+            if urls:
+                from search_utils import search_google_website
+                website = search_google_website(company_name)
         if not linkedin and company_name:
-            linkedin = search_google_linkedin(company_name)
-        # Lấy ngày đăng bài
+            urls = google_search_variants(company_name, 'linkedin')
+            if urls:
+                from search_utils import search_google_linkedin
+                linkedin = search_google_linkedin(company_name)
+        # Get article publication date
         date_tag = soup.find('time')
         if date_tag and date_tag.has_attr('datetime'):
             date = datetime.fromisoformat(date_tag['datetime'].replace('Z', '+00:00')).date().isoformat()
@@ -494,23 +562,22 @@ def extract_company_info(article_url):
             'website': website,
             'linkedin': linkedin,
             'article_url': article_url,
-            'source': 'TechCrunch'
         }
     except Exception as e:
-        print(f"Error extracting {article_url}: {e}")
+        print(f"[ERROR] {article_url} | {e}")
         return None
 
 
-# Tối ưu loại trùng lặp khi lưu vào CSV
+# Optimize duplicate removal when saving to CSV
 
 def normalize_company_name(name):
     """
-    Chuẩn hóa tên công ty: bỏ hậu tố phổ biến, dấu câu, viết thường, bỏ khoảng trắng, loại từ phổ biến.
+    Normalize company name: remove common suffixes, punctuation, lowercase, remove common words.
     """
     if not name:
         return ''
     name = name.lower()
-    # Loại bỏ các hậu tố phổ biến
+    # Remove common suffixes
     blacklist = [
         'inc', 'ltd', 'corp', 'co', 'corporation', 'limited', 'llc', 'plc', 'group', 'holdings', 'holding', 'company', 'companies',
         'sas', 'sa', 'pte', 'group', 'ventures', 'ai', 'robotics', 'systems', 'solutions', 'partners', 'capital',
@@ -518,11 +585,11 @@ def normalize_company_name(name):
     ]
     for word in blacklist:
         name = re.sub(r'\b' + word + r'\b', '', name)
-    name = re.sub(r'[^a-z0-9]', '', name)  # Bỏ dấu câu, khoảng trắng
+    name = re.sub(r'[^a-z0-9]', '', name)  # Remove punctuation, spaces
     return name.strip()
 
 def normalize_amount(amount):
-    # Chuẩn hóa số tiền funding về dạng số (float, triệu USD)
+    # Normalize funding amount to number (float, million USD)
     if not amount:
         return None
     import re
@@ -536,7 +603,7 @@ def normalize_amount(amount):
         val = val * 1000
     elif unit in ["k", "thousand"]:
         val = val / 1000
-    # Mặc định là triệu USD
+    # Default to million USD
     return round(val, 2)
 
 def normalize_date(date_str):
@@ -544,47 +611,47 @@ def normalize_date(date_str):
         return ''
     import re
     date_str = str(date_str).strip()
-    # Nếu đã đúng format yyyy-mm-dd
+    # If already in yyyy-mm-dd format
     try:
         return datetime.strptime(date_str, '%Y-%m-%d').strftime('%Y-%m-%d')
     except:
         pass
-    # Nếu dạng July 22, 2025
+    # If dạng "July 22, 2025"
     try:
         return datetime.strptime(date_str, '%B %d, %Y').strftime('%Y-%m-%d')
     except:
         pass
-    # Nếu dạng "July 22,2025" (thiếu space)
+    # If dạng "July 22,2025" (missing space)
     try:
         return datetime.strptime(date_str.replace(',', ', '), '%B %d, %Y').strftime('%Y-%m-%d')
     except:
         pass
-    # Nếu dạng "22 July 2025"
+    # If dạng "22 July 2025"
     try:
         return datetime.strptime(date_str, '%d %B %Y').strftime('%Y-%m-%d')
     except:
         pass
-    # Nếu dạng "2025/07/22"
+    # If dạng "2025/07/22"
     try:
         return datetime.strptime(date_str, '%Y/%m/%d').strftime('%Y-%m-%d')
     except:
         pass
-    # Nếu dạng "2025.07.22"
+    # If dạng "2025.07.22"
     try:
         return datetime.strptime(date_str, '%Y.%m.%d').strftime('%Y-%m-%d')
     except:
         pass
-    # Nếu dạng "22/07/2025"
+    # If dạng "22/07/2025"
     try:
         return datetime.strptime(date_str, '%d/%m/%Y').strftime('%Y-%m-%d')
     except:
         pass
-    # Nếu dạng "22.07.2025"
+    # If dạng "22.07.2025"
     try:
         return datetime.strptime(date_str, '%d.%m.%Y').strftime('%Y-%m-%d')
     except:
         pass
-    # Nếu không parse được thì trả về chuỗi gốc
+    # If not parseable, return original string
     return date_str
 
 def deduplicate_csv():
@@ -599,7 +666,7 @@ def deduplicate_csv():
         reader = csv.DictReader(f)
         for row in reader:
             rows.append(row)
-    # Loại trùng theo (company, date, amount) ưu tiên TechCrunch, nếu amount thiếu thì chỉ so sánh (company, date)
+    # Deduplicate by (company, date, amount) prioritizing TechCrunch, if amount is missing, only compare (company, date)
     seen = OrderedDict()
     for row in rows:
         name = normalize_company_name(row.get('company_name', ''))
@@ -607,10 +674,10 @@ def deduplicate_csv():
         amount = normalize_amount(row.get('amount', ''))
         key_full = (name, date, amount)
         key_noval = (name, date)
-        # Nếu đã có bản ghi TechCrunch cùng key, bỏ qua bản ghi mới
+        # If a TechCrunch entry with the same key already exists, skip the new entry
         if amount is not None:
             if key_full in seen:
-                # Ưu tiên TechCrunch
+                # Prioritize TechCrunch
                 if seen[key_full]['source'] == 'TechCrunch':
                     continue
                 if row['source'] == 'TechCrunch':
@@ -625,14 +692,14 @@ def deduplicate_csv():
                     seen[key_noval] = row
                 continue
             seen[key_noval] = row
-    # Ghi lại file
+    # Write back to file
     with open(CSV_FILE, 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for row in seen.values():
             writer.writerow(row)
 
-# Sửa lại hàm load_existing_entries
+# Fix load_existing_entries function
 
 def load_existing_entries():
     entries = {}
@@ -651,21 +718,21 @@ def load_existing_entries():
 def save_to_csv(entries):
     """
     Save a list of dicts to CSV, appending if file exists.
-    Trước khi lưu, loại trùng bằng pandas theo ['company_name', 'article_url'].
+    Before saving, deduplicate using pandas by ['company_name', 'article_url'].
     """
     import csv
     import os
     import pandas as pd
     fieldnames = ['raised_date', 'company_name', 'website', 'linkedin', 'article_url', 'source', 'amount', 'industry', 'crawl_date']
     file_exists = os.path.exists(CSV_FILE)
-    # Lưu tạm ra file
+    # Save temporarily to file
     temp_file = CSV_FILE + ".tmp"
     with open(temp_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for row in entries:
             writer.writerow(row)
-    # Đọc lại bằng pandas và loại trùng
+    # Read back by pandas and deduplicate
     df = pd.read_csv(temp_file)
     df = df.drop_duplicates(subset=["company_name", "article_url"], keep="first")
     df.to_csv(CSV_FILE, index=False)
@@ -798,8 +865,8 @@ def pick_best_linkedin(company_name, urls):
         return best_url
     return best_url if best_url else (urls[0] if urls else "")
 
-# Đảm bảo hàm crawl_finsmes_usa tồn tại
-# (Nếu đã có ở trên file thì bỏ qua đoạn này)
+# Ensure crawl_finsmes_usa function exists
+# (If already present in the file, skip this section)
 def crawl_finsmes_usa(max_pages=5):
     articles = []
     for page in range(1, max_pages+1):
@@ -825,7 +892,7 @@ def crawl_finsmes_usa(max_pages=5):
             print(f"[ERROR][Finsmes] Page {page}: {e}")
     return articles
 
-# Thêm delay vào search_google_website và search_google_linkedin
+# Add delay to search_google_website and search_google_linkedin
 old_search_google_website = search_google_website
 old_search_google_linkedin = search_google_linkedin
 
@@ -921,7 +988,7 @@ def crawl_techcrunch():
                 else:
                     print(f"[WARNING][NO GOOD WEBSITE] {company_name} | {pub_date} | {url} | website: {website}")
                     website = ''
-                linkedin = search_google_linkedin(company_name, website=website)
+                    linkedin = search_google_linkedin(company_name, website=website)
                 if linkedin and is_good_linkedin_match(company_name, linkedin):
                     linkedin = verify_and_normalize_link(company_name, linkedin, link_type='linkedin')
                 else:
@@ -988,7 +1055,7 @@ def crawl_finsmes():
                 else:
                     print(f"[WARNING][NO GOOD WEBSITE] {company_name} | {pub_date} | {url} | website: {website}")
                     website = ''
-                linkedin = search_google_linkedin(company_name, website=website)
+                    linkedin = search_google_linkedin(company_name, website=website)
                 if linkedin and is_good_linkedin_match(company_name, linkedin):
                     linkedin = verify_and_normalize_link(company_name, linkedin, link_type='linkedin')
                 else:

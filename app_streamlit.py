@@ -25,16 +25,13 @@ if not os.path.exists(CSV_FILE):
     st.stop()
 
 try:
-    df = pd.read_csv(CSV_FILE, dtype=str)
+    # Đọc CSV không có header và đặt tên cột
+    df = pd.read_csv(CSV_FILE, header=None, dtype=str)
+    # Đặt tên cột theo thứ tự: raised_date, company_name, website, linkedin, article_url, source, crawl_date
+    df.columns = ["raised_date", "company_name", "website", "linkedin", "article_url", "source", "crawl_date"]
 except Exception as e:
     st.error(f"Error reading CSV: {e}")
     st.stop()
-
-fields = ["raised_date", "company_name", "website", "linkedin", "article_url", "source", "crawl_date"]
-for col in fields:
-    if col not in df.columns:
-        df[col] = ""
-df = df[fields]
 
 # Ép kiểu ngày cho raised_date, bỏ qua giá trị không hợp lệ
 df["raised_date_parsed"] = pd.to_datetime(df["raised_date"], errors='coerce')
@@ -74,7 +71,10 @@ show_df = filtered_df.copy()
 show_df["article_url"] = show_df["article_url"].apply(make_clickable)
 show_df["website"] = show_df["website"].apply(make_clickable)
 show_df["linkedin"] = show_df["linkedin"].apply(make_clickable)
-show_df = show_df[fields]  # Đảm bảo đúng thứ tự
+
+# Chọn các cột để hiển thị
+fields = ["raised_date", "company_name", "website", "linkedin", "article_url", "source", "crawl_date"]
+show_df = show_df[fields]
 
 st.write("### Danh sách công ty được raise fund (7 ngày gần nhất)")
 st.write("(Click vào 'Link' để xem bài báo gốc)")

@@ -1,106 +1,424 @@
 import requests
 from bs4 import BeautifulSoup
-from thefuzz import fuzz
-import re
-from googlesearch import search as google_search_lib
-from openai import ChatCompletion
-import config
 import time
-from urllib.parse import urlparse
-import openai
 import random
+import re
+from urllib.parse import urlparse
+from thefuzz import fuzz
+import logging
+from llm_utils import (
+    normalize_domain, company_name_matches_domain, 
+    verify_url_with_llm, normalize_company_name_for_search,
+    safe_parse_json, llm_prompt, fetch_page_content
+)
+
+# Setup logging
+logger = logging.getLogger(__name__)
+
+try:
+    from googlesearch import search as google_search_lib
+except ImportError:
+    print('[WARNING] googlesearch-python chưa được cài đặt. Hãy chạy: pip install googlesearch-python')
+    google_search_lib = None
 
 def normalize_name(name):
-    import re
-    name = name.lower().strip()
-    name = re.sub(r"(inc\\.?|technologies?|labs|ai|dev|systems?|group|corp|llc|ltd|co|company|partners|ventures|capital|solutions|robotics|holdings|plc|sas|sa|pte)$", "", name)
-    name = re.sub(r"[^a-z0-9]", "", name)
-    return name.strip()
+    """Normalize name for fuzzy matching"""
+    return re.sub(r'[^a-z0-9]', '', name.lower())
 
 COMPANY_DOMAIN_WHITELIST = {
     "runetechnologies": {
         "website": "https://www.runetech.co/",
         "linkedin": "https://www.linkedin.com/company/runetech/"
     },
-    # Bổ sung các công ty khác nếu cần
+    # Add other companies if needed
 }
 
 def get_whitelisted_links(company_name):
     norm_name = normalize_name(company_name)
     return COMPANY_DOMAIN_WHITELIST.get(norm_name, {})
 
-def safe_google_search(query, num_results=5):
-    """
-    Wrapper cho googlesearch search với sleep ngẫu nhiên 5-10s giữa các request để giảm nguy cơ bị Google block.
-    """
-    results = []
-    try:
-        for url in google_search_lib(query, num_results=num_results):
-            results.append(url)
-            sleep_time = random.uniform(4,8)
-            print(f"[SAFE SEARCH] Sleep {sleep_time:.1f}s sau mỗi kết quả Google...")
-            time.sleep(sleep_time)
-    except Exception as e:
-        print(f"[ERROR][SAFE GOOGLE SEARCH] {query} | {e}")
-    return results
+def exponential_backoff_retry(func, max_retries=3, base_delay=2):
+    """Retry with exponential backoff"""
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except Exception as e:
+            if '429' in str(e) or 'blocked' in str(e).lower():
+                delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                logger.warning(f"Rate limited, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries})")
+                time.sleep(delay)
+            else:
+                raise e
+    raise Exception(f"Failed after {max_retries} retries")
+
+def safe_google_search(query, num_results=10, max_retries=3):
+    """Google search safely with retry logic and exponential backoff"""
+    def _search():
+        results = []
+        try:
+            for url in google_search_lib(query, num_results=num_results):
+                results.append(url)
+                sleep_time = random.uniform(5, 10)
+                logger.info(f"[SAFE SEARCH] Sleep {sleep_time:.1f}s after each Google result...")
+                time.sleep(sleep_time)
+            return results
+        except Exception as e:
+            logger.error(f"[ERROR][SAFE GOOGLE SEARCH] {query} | {e}")
+            raise e
+    
+    return exponential_backoff_retry(_search, max_retries)
 
 def get_domain_root(url):
-    parsed = urlparse(url)
-    hostname = parsed.hostname or ''
-    hostname = hostname.replace('www.', '')
-    parts = hostname.split('.')
-    if len(parts) > 2:
-        return '.'.join(parts[-2:])
-    elif len(parts) == 2:
-        return '.'.join(parts)
-    else:
-        return parts[0] if parts else ''
+    """Extract domain root from URL, handling special TLDs"""
+    return normalize_domain(url)
 
-def search_google_website(company_name):
-    query = f"{company_name} site:.energy OR site:.com OR site:.io"
-    urls = safe_google_search(query, num_results=10)
-    main_word = company_name.lower().split()[0]
+def fetch_title(url):
+    """Fetch page title"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        title = soup.find('title')
+        return title.get_text(strip=True) if title else ''
+    except Exception as e:
+        logger.warning(f"Error fetching title for {url}: {e}")
+        return ''
+
+def fetch_page_content(url, max_chars=1000):
+    """Fetch page content to verify"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Get text from body
+        body = soup.find('body')
+        if body:
+            text = body.get_text(separator=' ', strip=True)
+            return text[:max_chars] + '...' if len(text) > max_chars else text
+        
+        return ''
+    except Exception as e:
+        logger.warning(f"Error fetching content for {url}: {e}")
+        return ''
+
+def is_likely_homepage(url, company_name):
+    """Check if URL is a homepage"""
+    domain = get_domain_root(url)
     company_norm = normalize_name(company_name)
-    for url in urls:
+    domain_norm = normalize_name(domain)
+    
+    # Check if domain contains company name
+    return company_norm in domain_norm or domain_norm in company_norm
+
+def enhanced_company_name_normalization(company_name):
+    """Enhanced company name normalization - remove unnecessary words"""
+    if not company_name:
+        return ""
+    
+    # Remove unnecessary words
+    stop_words = [
+        'inc', 'llc', 'ltd', 'corp', 'corporation', 'company', 'co',
+        'group', 'solutions', 'technologies', 'tech', 'systems',
+        'ventures', 'capital', 'partners', 'holdings', 'plc', 'sas', 'sa', 'pte',
+        'international', 'global', 'worldwide', 'enterprises'
+    ]
+    
+    words = company_name.lower().split()
+    filtered_words = [w for w in words if w not in stop_words]
+    
+    return ' '.join(filtered_words).strip()
+
+def multi_threshold_fuzzy_match(company_name, domain, thresholds=[80, 70, 60, 50]):
+    """Fuzzy match with multiple thresholds"""
+    company_norm = enhanced_company_name_normalization(company_name)
+    domain_norm = normalize_name(domain)
+    
+    scores = {
+        'ratio': fuzz.ratio(company_norm, domain_norm),
+        'partial_ratio': fuzz.partial_ratio(company_norm, domain_norm),
+        'token_set_ratio': fuzz.token_set_ratio(company_norm, domain_norm),
+        'token_sort_ratio': fuzz.token_sort_ratio(company_norm, domain_norm)
+    }
+    
+    # Return highest score and matching type
+    max_score = max(scores.values())
+    max_type = max(scores, key=scores.get)
+    
+    # Check each threshold
+    for threshold in thresholds:
+        if max_score >= threshold:
+            return max_score, max_type, threshold
+    
+    return max_score, max_type, 0
+
+def search_google_website(company_name, llm_guesses=None):
+    """Search for company website with improved matching and LLM guesses"""
+    # Create queries with LLM guesses
+    queries = []
+    
+    # Basic query
+    base_query = f"{company_name} site:.energy OR site:.com OR site:.io OR site:.ai OR site:.net OR site:.org OR site:.co OR site:.tech OR site:.app"
+    queries.append(base_query)
+    
+    # Add queries with LLM guesses
+    if llm_guesses and isinstance(llm_guesses, list):
+        for guess in llm_guesses[:2]:  # Use only the first 2 guesses
+            if guess and isinstance(guess, str):
+                # Remove protocol if present
+                clean_guess = guess.replace('https://', '').replace('http://', '').replace('www.', '')
+                if clean_guess:
+                    queries.append(f"{company_name} {clean_guess}")
+                    queries.append(f"{company_name} site:{clean_guess}")
+    
+    # Add queries with main keywords
+    main_word = company_name.lower().split()[0]
+    if len(main_word) > 2:  # Use only words with length > 2
+        queries.append(f"{main_word} official site")
+        queries.append(f"{main_word} homepage")
+    
+    all_urls = []
+    for query in queries[:5]:  # Limit to 5 queries
+        try:
+            urls = safe_google_search(query, num_results=5, max_retries=2)
+            all_urls.extend(urls)
+            if urls:  # If results found, stop
+                break
+        except Exception as e:
+            logger.warning(f"Query failed: {query} - {e}")
+            continue
+    
+    if not all_urls:
+        return ""
+    
+    # Normalize company name
+    company_norm = enhanced_company_name_normalization(company_name)
+    main_word = company_name.lower().split()[0]
+    
+    best_url = ''
+    best_score = 0
+    best_type = ''
+    
+    for url in all_urls:
         domain_root = get_domain_root(url)
-        norm_domain = domain_root.replace('.', '').replace('-', '')
-        score = fuzz.partial_ratio(company_norm, norm_domain)
-        print(f"[MATCH][WEBSITE] {company_name} vs {domain_root} | score: {score}")
-        # Nhận nếu domain chứa từ khóa chính hoặc score >= 60
-        if main_word in norm_domain or score >= 60:
-            return url
-        # Fallback: kiểm tra title
+        if not domain_root:
+            continue
+            
+        # Calculate score with multiple thresholds
+        score, match_type, threshold = multi_threshold_fuzzy_match(company_norm, domain_root)
+        logger.info(f"[MATCH][WEBSITE] {company_name} vs {domain_root} | score: {score} | type: {match_type} | threshold: {threshold}")
+        
+        # Improved logic: prioritize high score or main word match
+        if score >= 60 and score > best_score:
+            best_score = score
+            best_url = url
+            best_type = match_type
+        elif main_word in domain_root.lower() and best_score < 60:
+            best_score = 60
+            best_url = url
+            best_type = 'main_word_match'
+    
+    # If a URL with a good score is found
+    if best_score >= 50:
+        # Verify with LLM with context
+        page_content = fetch_page_content(best_url, max_chars=500)
+        if verify_url_with_llm(best_url, company_name, "website", context=page_content):
+            logger.info(f"[VERIFIED][WEBSITE] {company_name} -> {best_url} (score: {best_score}, type: {best_type})")
+            return best_url
+        else:
+            logger.warning(f"[UNVERIFIED][WEBSITE] {company_name} -> {best_url} (score: {best_score}, type: {best_type})")
+            return best_url
+    
+    # Fallback: check title if no candidate meets threshold
+    for url in all_urls:
         title = fetch_title(url)
         if title and company_name.lower().replace(' ', '') in title.lower().replace(' ', ''):
-            print(f"[MATCH][WEBSITE][FALLBACK TITLE] {company_name} in title: {title}")
+            logger.info(f"[MATCH][WEBSITE][FALLBACK TITLE] {company_name} in title: {title}")
             return url
+    
     return ""
 
-def search_google_linkedin(company_name, website=None):
-    query = f"{company_name} site:linkedin.com/company"
-    urls = safe_google_search(query, num_results=10)
-    norm_company = normalize_name(company_name)
-    for url in urls:
-        if "linkedin.com/company" in url:
-            slug = url.rstrip("/").split("/")[-1]
-            norm_slug = normalize_name(slug)
-            score = fuzz.token_set_ratio(norm_company, norm_slug)
-            print(f"[MATCH][LINKEDIN] {company_name} vs {slug} | score: {score}")
-            if score >= 60:
-                return url
-    print(f"[GOOGLE][LINKEDIN][FAIL] {company_name} | Không tìm được LinkedIn phù hợp.")
+def search_google_linkedin(company_name, website=None, llm_guess=None):
+    """Search for company LinkedIn with improved matching and LLM guess"""
+    # Create queries with LLM guess
+    queries = []
+    
+    # Basic query
+    base_query = f"{company_name} site:linkedin.com/company"
+    queries.append(base_query)
+    
+    # Add query with LLM guess
+    if llm_guess and isinstance(llm_guess, str):
+        # Extract slug from LinkedIn URL guess
+        if 'linkedin.com/company/' in llm_guess:
+            slug = llm_guess.split('/company/')[-1].rstrip('/')
+            if slug:
+                queries.append(f"{company_name} {slug}")
+                queries.append(f"site:linkedin.com/company {slug}")
+    
+    # Add query with main keywords
+    main_word = company_name.lower().split()[0]
+    if len(main_word) > 2:
+        queries.append(f"{main_word} site:linkedin.com/company")
+    
+    all_urls = []
+    for query in queries[:3]:  # Limit to 3 queries
+        try:
+            urls = safe_google_search(query, num_results=5, max_retries=2)
+            all_urls.extend(urls)
+            if urls:
+                break
+        except Exception as e:
+            logger.warning(f"LinkedIn query failed: {query} - {e}")
+            continue
+    
+    if not all_urls:
+        return ""
+    
+    # Normalize company name
+    norm_company = enhanced_company_name_normalization(company_name)
+    best_url = ''
+    best_score = 0
+    best_type = ''
+    
+    for url in all_urls:
+        if "linkedin.com/company" not in url:
+            continue
+            
+        # Extract slug from LinkedIn URL
+        slug = url.rstrip("/").split("/")[-1]
+        if not slug:
+            continue
+            
+        # Calculate score with multiple thresholds
+        score, match_type, threshold = multi_threshold_fuzzy_match(norm_company, slug)
+        logger.info(f"[MATCH][LINKEDIN] {company_name} vs {slug} | score: {score} | type: {match_type} | threshold: {threshold}")
+        
+        if score >= 50 and score > best_score:
+            best_score = score
+            best_url = url
+            best_type = match_type
+    
+    if best_score >= 50:
+        # Verify with LLM with context
+        page_content = fetch_page_content(best_url, max_chars=500)
+        if verify_url_with_llm(best_url, company_name, "LinkedIn", context=page_content):
+            logger.info(f"[VERIFIED][LINKEDIN] {company_name} -> {best_url} (score: {best_score}, type: {best_type})")
+            return best_url
+        else:
+            logger.warning(f"[UNVERIFIED][LINKEDIN] {company_name} -> {best_url} (score: {best_score}, type: {best_type})")
+            return best_url
+    
+    logger.warning(f"[GOOGLE][LINKEDIN][FAIL] {company_name} | No suitable LinkedIn found.")
     return ""
+
+def google_search_variants(company_name, search_type, llm_guesses=None):
+    """Search Google with multiple query variations and LLM guesses"""
+    queries = []
+    
+    if search_type == 'website':
+        queries = [
+            f"{company_name} official site",
+            f"{company_name} homepage",
+            f"{company_name} {company_name.split()[-1]}",
+            f"{company_name} site:.ai OR site:.com OR site:.io OR site:.energy OR site:.net OR site:.org OR site:.co OR site:.tech OR site:.app",
+        ]
+        
+        # Add queries with LLM guesses
+        if llm_guesses and isinstance(llm_guesses, list):
+            for guess in llm_guesses[:2]:
+                if guess and isinstance(guess, str):
+                    clean_guess = guess.replace('https://', '').replace('http://', '').replace('www.', '')
+                    if clean_guess:
+                        queries.append(f"{company_name} {clean_guess}")
+    
+    elif search_type == 'linkedin':
+        queries = [
+            f"{company_name} site:linkedin.com/company",
+            f"{company_name} linkedin",
+            f"{company_name} ai linkedin",
+        ]
+        
+        # Add query with LLM guess
+        if llm_guesses and isinstance(llm_guesses, str):
+            if 'linkedin.com/company/' in llm_guesses:
+                slug = llm_guesses.split('/company/')[-1].rstrip('/')
+                if slug:
+                    queries.append(f"{company_name} {slug}")
+    
+    all_urls = []
+    for query in queries:
+        try:
+            urls = safe_google_search(query, num_results=5, max_retries=2)
+            all_urls.extend(urls)
+            if urls:  # If results found, stop
+                break
+        except Exception as e:
+            logger.warning(f"Query failed: {query} - {e}")
+            continue
+    
+    return all_urls
+
+def verify_and_clean_url(url, company_name):
+    """Verify and clean URL"""
+    if not url:
+        return ""
+    
+    # Add protocol if missing
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+    
+    # Check if URL is valid
+    try:
+        parsed = urlparse(url)
+        if not parsed.netloc:
+            return ""
+    except Exception:
+        return ""
+    
+    return url
+
+def resolve_final_links_with_llm(urls_with_scores, company_name, url_type="website", top_n=3):
+    """Use LLM to rerank and select the best link"""
+    if not urls_with_scores:
+        return ""
+    
+    # Sort by score and get top N
+    sorted_urls = sorted(urls_with_scores, key=lambda x: x[1], reverse=True)[:top_n]
+    
+    if len(sorted_urls) == 1:
+        return sorted_urls[0][0]
+    
+    # Create prompt for LLM
+    prompt = f"You are an expert startup analyst. Please select the correct {url_type} for the company '{company_name}' from the following list:\n\n"
+    
+    for i, (url, score) in enumerate(sorted_urls, 1):
+        title = fetch_title(url)
+        domain = get_domain_root(url)
+        prompt += f"{i}. {url} (domain: {domain}, score: {score}, title: {title})\n"
+    
+    prompt += f"\nReturn JSON: {{\"best_url\": \"Best URL\", \"reason\": \"Reason for selection\"}}"
+    
+    content = llm_prompt(prompt, max_tokens=256)
+    if not content:
+        return sorted_urls[0][0]  # Fallback to highest score
+    
+    result = safe_parse_json(content)
+    if result and result.get('best_url'):
+        logger.info(f"[LLM RERANK] {company_name} -> {result.get('best_url')} | reason: {result.get('reason', '')}")
+        return result.get('best_url')
+    
+    return sorted_urls[0][0]  # Fallback to highest score
 
 def find_company_website_llm(company_name, context=""):
     prompt = (
         f"What is the official website of the startup company named '{company_name}'{f', {context}' if context else ''}? Only return the URL, nothing else. If you are not sure, return 'unknown'."
     )
-    response = openai.chat.completions.create(
-        model=config.LLM_MODEL_ID,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=32,
-        temperature=0
-    )
+    response = llm_prompt(prompt)
     url = response.choices[0].message.content.strip()
     if url.startswith('http'):
         return url, False
@@ -112,12 +430,7 @@ def find_company_linkedin_llm(company_name, context=""):
     prompt = (
         f"What is the LinkedIn page URL of the startup company named '{company_name}'{f', {context}' if context else ''}? Only return the URL, nothing else. If you are not sure, return 'unknown'."
     )
-    response = openai.chat.completions.create(
-        model=config.LLM_MODEL_ID,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=32,
-        temperature=0
-    )
+    response = llm_prompt(prompt)
     url = response.choices[0].message.content.strip()
     if url.startswith('http') and "linkedin.com/company" in url:
         return url, False
@@ -149,18 +462,18 @@ def verify_link_with_google(link, company_name, is_linkedin=False):
                 score = fuzz.partial_ratio(slug.lower(), normalized)
                 if link.replace('LLM_guess: ', '').strip().lower() in url.strip().lower() or url.strip().lower() in link.replace('LLM_guess: ', '').strip().lower():
                     if score >= 80:
-                        print(f"[GOOGLE][VERIFY][MATCH] {company_name} | Query: {query} | URL: {url} | score: {score}")
-                        return True
+                            logger.info(f"[GOOGLE][VERIFY][MATCH] {company_name} | Query: {query} | URL: {url} | score: {score}")
+            return True
         except Exception as e:
-            print(f"[ERROR][GOOGLESEARCH VERIFY] {company_name} | Query: {query} | {e}")
+            logger.error(f"[ERROR][GOOGLESEARCH VERIFY] {company_name} | Query: {query} | {e}")
             if '429' in str(e):
-                print('[GOOGLE][BLOCKED] Google đang chặn, hãy thử lại sau hoặc tăng thời gian sleep!')
-    print(f"[GOOGLE][VERIFY][FAIL] {company_name} | Không xác thực được link qua Google.")
+                logger.warning('[GOOGLE][BLOCKED] Google is blocking, please try again later or increase sleep time!')
+    logger.warning(f"[GOOGLE][VERIFY][FAIL] {company_name} | Could not verify link via Google.")
     return False 
 
 def search_company_links(company_name, type='website', top_k=5):
     """
-    Tìm top_k link website hoặc linkedin cho công ty, trả về list [(url, score, title, reason)]
+    Find top_k website or LinkedIn links for a company, return list [(url, score, title, reason)]
     """
     queries = []
     if type == 'website':
@@ -190,13 +503,13 @@ def search_company_links(company_name, type='website', top_k=5):
                 elif type == 'linkedin' and site_filter and site_filter in url:
                     results.append(url)
         except Exception as e:
-            print(f"[ERROR][GOOGLESEARCH COMPANY LINKS] {company_name} | Query: {query} | {e}")
+            logger.error(f"[ERROR][GOOGLESEARCH COMPANY LINKS] {company_name} | Query: {query} | {e}")
             if '429' in str(e):
-                print('[GOOGLE][BLOCKED] Google đang chặn, hãy thử lại sau hoặc tăng thời gian sleep!')
+                logger.warning('[GOOGLE][BLOCKED] Google is blocking, please try again later or increase sleep time!')
             continue
         if len(results) >= top_k:
             break
-    # Loại trùng
+    # Remove duplicates
     results = list(dict.fromkeys(results))[:top_k]
     scored = []
     for url in results:
@@ -206,7 +519,7 @@ def search_company_links(company_name, type='website', top_k=5):
 
 def verify_link_match(company_name, url, type='website'):
     """
-    Xác thực link dựa trên domain, title, meta, slug. Trả về (True/False, score, title, reason)
+    Verify link based on domain, title, meta, slug. Returns (True/False, score, title, reason)
     """
     try:
         resp = requests.get(url, timeout=7)
@@ -214,19 +527,19 @@ def verify_link_match(company_name, url, type='website'):
         title = ''
         meta_desc = ''
         og_title = ''
-        # Lấy title
+        # Get title
         m = re.search(r'<title>(.*?)</title>', html, re.IGNORECASE)
         if m:
             title = m.group(1)
-        # Lấy meta description
+        # Get meta description
         m = re.search(r'<meta name=["\']description["\'] content=["\'](.*?)["\']', html, re.IGNORECASE)
         if m:
             meta_desc = m.group(1)
-        # Lấy og:title
+        # Get og:title
         m = re.search(r'<meta property=["\']og:title["\'] content=["\'](.*?)["\']', html, re.IGNORECASE)
         if m:
             og_title = m.group(1)
-        # So khớp domain
+        # Match domain
         domain = url.split('//')[-1].split('/')[0].split('.')[0]
         company_key = company_name.lower().replace(' ', '').replace('-', '')
         domain_score = fuzz.ratio(company_key, domain.replace('-', '').replace('_', ''))
@@ -238,7 +551,7 @@ def verify_link_match(company_name, url, type='website'):
         if type == 'linkedin' and 'linkedin.com/company/' in url:
             slug = url.split('linkedin.com/company/')[-1].split('/')[0].replace('-', '').replace('_', '').lower()
             slug_score = fuzz.ratio(company_key, slug)
-        # Heuristic: >=2 yếu tố > 70 là hợp lệ
+        # Heuristic: >=2 factors > 70 are valid
         factors = [domain_score, title_score, meta_score, og_score, slug_score]
         pass_count = sum([s > 70 for s in factors])
         score = max(factors)
@@ -251,10 +564,10 @@ def verify_link_match(company_name, url, type='website'):
 
 def resolve_final_links(company_name, type='website', use_llm=False):
     """
-    Trả về link tốt nhất (website/linkedin) cho công ty, có thể dùng LLM rerank nếu cần.
+    Return the best (website/linkedin) link for a company, optionally using LLM rerank.
     """
     scored = search_company_links(company_name, type=type, top_k=5)
-    # Nếu không dùng LLM rerank, lấy link có score cao nhất và pass xác thực
+    # If not using LLM rerank, take the link with the highest score and pass verification
     best = None
     best_score = 0
     for url, score, title, reason in scored:
@@ -263,19 +576,14 @@ def resolve_final_links(company_name, type='website', use_llm=False):
             best_score = score
     if best or not use_llm:
         return best
-    # Nếu muốn dùng LLM rerank (khi không có link pass hoặc muốn chắc chắn hơn)
+    # If wanting to use LLM rerank (when no pass link or wanting to be more confident)
     if use_llm and scored:
         prompt = f"""
 Given the company name '{company_name}', choose the correct {type} from the following list:\n"""
         for i, (url, score, title, reason) in enumerate(scored, 1):
             prompt += f"{i}. {url} (title: {title})\n"
         prompt += "\nReturn only the number of the best match."
-        response = ChatCompletion.create(
-            model=config.LLM_MODEL_ID,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=4,
-            temperature=0
-        )
+        response = llm_prompt(prompt)
         content = response.choices[0].message.content.strip()
         try:
             idx = int(content)
