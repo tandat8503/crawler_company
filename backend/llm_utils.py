@@ -6,7 +6,7 @@ import os
 import logging
 from datetime import datetime, timedelta, date
 import openai
-import config
+from . import config
 import validators
 from urllib.parse import urlparse
 from thefuzz import fuzz
@@ -15,6 +15,8 @@ from thefuzz import fuzz
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Initialize OpenAI client properly
+import openai
 openai.api_key = config.OPENAI_API_KEY
 
 def is_valid_url(url):
@@ -75,6 +77,10 @@ def llm_prompt(prompt_text, max_tokens=512, temperature=0, model=None):
         model = config.LLM_MODEL_ID
     
     try:
+        # Sử dụng cách khởi tạo cũ để tránh lỗi proxies
+        openai.api_key = config.OPENAI_API_KEY
+        openai.api_base = config.LLM_API_URL
+        
         response = openai.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt_text}],
@@ -88,7 +94,7 @@ def llm_prompt(prompt_text, max_tokens=512, temperature=0, model=None):
 
 def has_funding_keywords(text):
     """Check funding keywords before calling LLM"""
-    # More specific funding keywords to avoid false positives
+    # More comprehensive funding keywords
     funding_keywords = [
         # Direct funding terms
         'raises', 'raised', 'funding round', 'investment round', 'series a', 'series b', 'series c',
@@ -97,40 +103,110 @@ def has_funding_keywords(text):
         'backed by', 'invested in', 'led by', 'co-led by', 'participated in',
         'closes funding', 'announces funding', 'secures funding', 'receives investment',
         'funding led by', 'investment led by', 'round led by',
-        # Specific funding amounts (only in funding context)
+        
+        # Additional funding terms
+        'funding', 'investment', 'capital', 'financing', 'funding round', 'investment round',
+        'series funding', 'seed funding', 'angel funding', 'venture funding',
+        'equity funding', 'debt funding', 'convertible note', 'pre-seed funding',
+        'growth funding', 'expansion funding', 'strategic investment',
+        
+        # Amount patterns
         'million in funding', 'billion in funding', 'million investment', 'billion investment',
         'million raised', 'billion raised', 'million funding', 'billion funding',
-        # Funding-related terms
+        'million capital', 'billion capital', 'million financing', 'billion financing',
+        
+        # Investor patterns
+        'investors', 'venture capitalists', 'vc firms', 'angel investors',
+        'private equity', 'investment firms', 'fund managers',
+        
+        # Funding announcement patterns
+        'announces', 'announced', 'announcement', 'closes', 'closed', 'closing',
+        'secures', 'secured', 'receives', 'received', 'obtains', 'obtained',
+        
+        # Additional context
         'funding round', 'investment round', 'capital round', 'equity round',
         'pre-seed', 'seed funding', 'series funding', 'growth funding',
-        'strategic investment', 'equity investment', 'debt funding', 'convertible note'
+        'strategic investment', 'equity investment', 'debt funding', 'convertible note',
+        
+        # More flexible patterns
+        'funding', 'investment', 'capital', 'financing', 'backing', 'support',
+        'funded', 'invested', 'backed', 'supported', 'financed'
     ]
     
     text_lower = text.lower()
     
     # Check for funding keywords
+    found_keywords = []
     for keyword in funding_keywords:
         if keyword in text_lower:
-            return True
+            found_keywords.append(keyword)
     
-    # Additional context check for common false positives
+    # If no keywords found, return False
+    if not found_keywords:
+        return False
+    
+    # If keywords found, check for false positive context
     false_positive_indicators = [
         'competition', 'challenge', 'contest', 'award', 'grant', 'prize',
         'million users', 'billion users', 'million downloads', 'billion downloads',
-        'million revenue', 'billion revenue', 'million valuation', 'billion valuation'
+        'million revenue', 'billion revenue', 'million valuation', 'billion valuation',
+        'partnership', 'deal', 'agreement', 'contract', 'service', 'product launch'
     ]
     
-    # If text contains false positive indicators, be more strict
+    # Check if there are false positive indicators
     has_false_positive = any(indicator in text_lower for indicator in false_positive_indicators)
+    
     if has_false_positive:
-        # Only return True if there are very specific funding terms
+        # Only return True if there are very specific funding terms AND no false positive context
         specific_funding_terms = [
             'raises', 'raised', 'funding round', 'investment round', 'series a', 'series b', 'series c',
-            'seed round', 'angel round', 'venture round', 'fundraising', 'capital raise'
+            'seed round', 'angel round', 'venture round', 'fundraising', 'capital raise',
+            'venture capital', 'angel investment', 'backed by', 'invested in', 'led by'
         ]
-        return any(term in text_lower for term in specific_funding_terms)
+        
+        # Check if there are specific funding terms
+        has_specific_funding = any(term in text_lower for term in specific_funding_terms)
+        
+        # If there are false positives but no specific funding terms, return False
+        if not has_specific_funding:
+            return False
+        
+        # If there are both false positives and specific funding terms, 
+        # check if the context is clearly about funding vs other business activities
+        funding_context_indicators = [
+            'raises', 'raised', 'funding', 'investment', 'venture capital', 'angel investment',
+            'series a', 'series b', 'series c', 'seed round', 'angel round', 'led by'
+        ]
+        
+        # Count funding context indicators
+        funding_context_count = sum(1 for indicator in funding_context_indicators if indicator in text_lower)
+        
+        # Only return True if there are multiple funding context indicators
+        return funding_context_count >= 2
     
-    return False
+    # If no false positives, check if there are specific funding terms
+    specific_funding_terms = [
+        'raises', 'raised', 'funding round', 'investment round', 'series a', 'series b', 'series c',
+        'seed round', 'angel round', 'venture round', 'fundraising', 'capital raise',
+        'venture capital', 'angel investment', 'backed by', 'invested in', 'led by'
+    ]
+    
+    # If there are specific funding terms, return True
+    if any(term in text_lower for term in specific_funding_terms):
+        return True
+    
+    # For other keywords, check if there are multiple funding-related terms
+    funding_related_terms = [
+        'funding', 'investment', 'capital', 'financing', 'venture capital', 'angel investment',
+        'investors', 'venture capitalists', 'vc firms', 'angel investors'
+    ]
+    
+    funding_related_count = sum(1 for term in funding_related_terms if term in text_lower)
+    
+    # Only return True if there are multiple funding-related terms
+    return funding_related_count >= 2
+    
+
 
 def is_funding_article_llm(article_text):
     """
@@ -161,7 +237,9 @@ def is_funding_article_llm(article_text):
     
     content = llm_prompt(prompt, max_tokens=128)
     if not content:
-        return False
+        # If LLM call fails, fall back to keyword check
+        logger.warning("LLM call failed, falling back to keyword check")
+        return has_funding_keywords(article_text)
     
     result = safe_parse_json(content)
     if result and result.get('is_funding'):
@@ -258,12 +336,12 @@ def extract_funding_info_llm(article_text):
         company_name = result.get('company_name', '').strip()
         # Fallback website
         if not result.get('website') and company_name:
-            from search_utils import search_google_website
-            result['website'] = search_google_website(company_name)
+            from .search_utils import find_company_website
+            result['website'] = find_company_website(company_name)
         # Fallback linkedin
         if not result.get('linkedin') and company_name:
-            from search_utils import search_google_linkedin
-            result['linkedin'] = search_google_linkedin(company_name)
+            from .search_utils import find_company_linkedin
+            result['linkedin'] = find_company_linkedin(company_name)
     return result
 
 def extract_company_info_llm(article_text, links_context=None):

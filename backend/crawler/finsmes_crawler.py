@@ -2,11 +2,16 @@ import requests
 from bs4 import BeautifulSoup
 import csv
 import os
+import sys
 from datetime import datetime, timedelta, date, timezone
 from urllib.parse import urlparse
 import json
 import time
 from collections import OrderedDict
+
+# Thêm thư mục cha vào sys.path để import được các module
+# sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+
 try:
     from thefuzz import fuzz
 except ImportError:
@@ -14,16 +19,15 @@ except ImportError:
     fuzz = None
 
 import pandas as pd
-import config
-from deduplication import (
-    normalize_company_name, normalize_amount, normalize_date, deduplicate_csv,
-    load_existing_entries, get_existing_keys, verify_and_normalize_link
+from .. import config
+from ..deduplication import (
+    normalize_company_name, normalize_amount, normalize_date,
+    load_existing_entries
 )
-from search_utils import (
-    search_google_website, search_google_linkedin, find_company_website_llm,
-    find_company_linkedin_llm, verify_link_with_google, get_whitelisted_links
+from ..search_utils import (
+    find_company_website, find_company_linkedin, verify_company_info
 )
-from llm_utils import (
+from ..llm_utils import (
     extract_company_name_and_raised_date_llm, is_funding_article_llm, 
     extract_funding_info_llm, is_negative_news, extract_company_info_llm
 )
@@ -110,24 +114,7 @@ def extract_possible_company_website(soup, company_name):
                 return href
     return ""
 
-def save_to_csv(entries):
-    """
-    Save entries to CSV file.
-    """
-    if not entries:
-        return
-    with open(CSV_FILE, 'a', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        for entry in entries:
-            writer.writerow([
-                entry.get('raised_date', ''),
-                entry.get('company_name', ''),
-                entry.get('website', ''),
-                entry.get('linkedin', ''),
-                entry.get('article_url', ''),
-                entry.get('source', ''),
-                entry.get('crawl_date', '')
-            ])
+# Xóa hoàn toàn các hàm save_to_csv, save_to_db, chỉ giữ lại crawl_finsmes trả về list entries
 
 def crawl_finsmes():
     """
@@ -171,8 +158,8 @@ def crawl_finsmes():
                 if key in existing_entries or key in unique_entries:
                     logger.info(f"[SKIP][DUPLICATE] {company_name} | {pub_date} | {url}")
                     continue
-                website = search_google_website(company_name)
-                linkedin = search_google_linkedin(company_name, website=website)
+                website = find_company_website(company_name)
+                linkedin = find_company_linkedin(company_name)
                 crawl_date = today.isoformat()
                 entry = {
                     'raised_date': raised_date,
@@ -193,8 +180,7 @@ if __name__ == '__main__':
     logger.info("=== Finsmes Crawler ===")
     entries = crawl_finsmes()
     if entries:
-        save_to_csv(entries)
-        logger.info(f'Saved {len(entries)} Finsmes entries.')
+        logger.info(f'Finsmes entries found: {len(entries)}')
     else:
         logger.info('No Finsmes entries found.')
     logger.info("Done. Check companies.csv for results.") 

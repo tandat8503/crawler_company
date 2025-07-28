@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
-import os
+import requests
+from datetime import datetime
 
-CSV_FILE = os.path.join(os.path.dirname(__file__), 'companies.csv')
+API_URL = "http://localhost:8000"
 
 st.set_page_config(page_title="Company Funding News", layout="wide")
 st.title("Company Funding News")
@@ -20,28 +21,34 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-if not os.path.exists(CSV_FILE):
-    st.warning("No data found. Please run the crawler first.")
-    st.stop()
+def fetch_companies(start_date=None, end_date=None):
+    params = {}
+    if start_date:
+        params['start_date'] = start_date
+    if end_date:
+        params['end_date'] = end_date
+    resp = requests.get(f"{API_URL}/companies", params=params)
+    if resp.status_code == 200:
+        return resp.json()
+    return []
 
-try:
-    # Đọc CSV không có header và đặt tên cột
-    df = pd.read_csv(CSV_FILE, header=None, dtype=str)
-    # Đặt tên cột theo thứ tự: raised_date, company_name, website, linkedin, article_url, source, crawl_date
-    df.columns = ["raised_date", "company_name", "website", "linkedin", "article_url", "source", "crawl_date"]
-except Exception as e:
-    st.error(f"Error reading CSV: {e}")
-    st.stop()
+def make_clickable(url):
+    if not url or url.strip() == "":
+        return ""
+    return f'<a href="{url}" target="_blank">{url}</a>'
 
-# Ép kiểu ngày cho raised_date, bỏ qua giá trị không hợp lệ
-df["raised_date_parsed"] = pd.to_datetime(df["raised_date"], errors='coerce')
-
-# Nếu không có ngày nào hợp lệ, dùng hôm nay làm mặc định
-if df["raised_date_parsed"].notna().any():
-    min_date = df["raised_date_parsed"].min().date()
-    max_date = df["raised_date_parsed"].max().date()
+# Lấy min/max date từ dữ liệu (nếu có)
+companies = fetch_companies()
+df = pd.DataFrame(companies)
+if not df.empty and 'raised_date' in df.columns:
+    df['raised_date_parsed'] = pd.to_datetime(df['raised_date'], errors='coerce')
+    if df['raised_date_parsed'].notna().any():
+        min_date = df['raised_date_parsed'].min().date()
+        max_date = df['raised_date_parsed'].max().date()
+    else:
+        min_date = max_date = datetime.today().date()
 else:
-    min_date = max_date = pd.Timestamp.today().date()
+    min_date = max_date = datetime.today().date()
 
 col1, col2 = st.columns(2)
 with col1:
@@ -49,50 +56,49 @@ with col1:
 with col2:
     end_date = st.date_input("To raised date", value=max_date)
 
-mask = (
-    df["raised_date_parsed"] >= pd.to_datetime(start_date)
-) & (
-    df["raised_date_parsed"] <= pd.to_datetime(end_date)
-)
-filtered_df = df[mask]
+# Lấy lại dữ liệu theo filter ngày
+companies = fetch_companies(str(start_date), str(end_date))
+df = pd.DataFrame(companies)
 
-# Xử lý dòng NO_NEWS
-no_news_rows = filtered_df[filtered_df['source'] == 'NO_NEWS']
-filtered_df = filtered_df[filtered_df['source'] != 'NO_NEWS']
-
-filtered_df = filtered_df.sort_values(by="raised_date_parsed", ascending=False)
-
-def make_clickable(url):
-    if pd.isna(url) or url.strip() == "":
-        return ""
-    return f'<a href="{url}" target="_blank">{url}</a>'
-
-show_df = filtered_df.copy()
-show_df["article_url"] = show_df["article_url"].apply(make_clickable)
-show_df["website"] = show_df["website"].apply(make_clickable)
-show_df["linkedin"] = show_df["linkedin"].apply(make_clickable)
-
-# Chọn các cột để hiển thị
-fields = ["raised_date", "company_name", "website", "linkedin", "article_url", "source", "crawl_date"]
-show_df = show_df[fields]
-
-st.write("### Danh sách công ty được raise fund (7 ngày gần nhất)")
-st.write("(Click vào 'Link' để xem bài báo gốc)")
-
-if not show_df.empty:
+if not df.empty:
+    df['article_url'] = df['article_url'].apply(make_clickable)
+    df['website'] = df['website'].apply(make_clickable)
+    df['linkedin'] = df['linkedin'].apply(make_clickable)
+    fields = [
+        "raised_date", "company_name", "website", "linkedin", "article_url", "amount_raised", "funding_round", "crawl_date"
+    ]
+    show_df = df[fields] if all(f in df.columns for f in fields) else df
+    st.write("### Danh sách công ty được raise fund (theo filter ngày)")
+    st.write("(Click vào 'Link' để xem bài báo gốc)")
     st.write(
         show_df.to_html(escape=False, index=False),
         unsafe_allow_html=True
     )
     st.download_button(
         label="Download filtered CSV",
-        data=filtered_df[fields].to_csv(index=False).encode("utf-8"),
+        data=show_df.to_csv(index=False).encode("utf-8"),
         file_name="filtered_companies.csv",
         mime="text/csv"
     )
-elif not no_news_rows.empty:
-    # Lấy thông báo từ cột cuối cùng nếu có
-    msg = no_news_rows.iloc[0][-1] if len(no_news_rows.columns) > 7 else "Không có tin mới trong ngày đã chọn."
-    st.info(msg)
 else:
     st.info("Không có dữ liệu trong khoảng ngày đã chọn.")
+
+# Search Tavily
+st.write("---")
+st.subheader("Tìm kiếm thông tin với Tavily")
+search_query = st.text_input("Nhập từ khóa tìm kiếm (tiếng Anh)")
+if search_query:
+    with st.spinner("Đang tìm kiếm với Tavily..."):
+        resp = requests.post(f"{API_URL}/search", json={"query": search_query, "max_results": 5})
+        if resp.status_code == 200:
+            result = resp.json()
+            if 'results' in result:
+                st.write("### Kết quả tìm kiếm:")
+                for i, item in enumerate(result['results'], 1):
+                    st.markdown(f"**{i}. [{item.get('title', 'No Title')}]({item.get('url', '')})**")
+                    st.write(item.get('content', ''))
+                    st.write('---')
+            else:
+                st.warning("Không có kết quả hoặc lỗi định dạng từ Tavily.")
+        else:
+            st.error(f"Lỗi khi gọi Tavily: {resp.text}")
