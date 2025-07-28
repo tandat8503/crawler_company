@@ -34,7 +34,7 @@
 
 ```
 company_raisefund/
-├── auto_crawl.py          # Main crawling script (46KB)
+├── crawl_all.py           # Main crawling script (3.6KB)
 ├── app_streamlit.py       # Web interface (3.2KB)
 ├── techcrunch_crawler.py  # TechCrunch crawler (21KB)
 ├── finsmes_crawler.py     # Finsmes crawler (7.6KB)
@@ -94,7 +94,7 @@ sudo systemctl start funding-crawler
 
 ## 📊 Performance Metrics
 
-- **Total code size**: ~130KB (optimized from ~200KB)
+- **Total code size**: ~85KB (optimized from ~200KB)
 - **Dependencies**: 10 packages (down from 15+)
 - **Files removed**: 9 unnecessary files
 - **Import optimization**: Removed 20+ duplicate imports

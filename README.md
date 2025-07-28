@@ -37,7 +37,12 @@ OPENAI_API_KEY=your_openai_api_key_here
 ### 1. Run the crawler
 
 ```bash
-python auto_crawl.py
+# Crawl both TechCrunch and Finsmes
+python crawl_all.py
+
+# Or crawl specific source
+python crawl_all.py techcrunch  # Only TechCrunch
+python crawl_all.py finsmes     # Only Finsmes
 ```
 
 ### 2. Start the web interface
@@ -52,7 +57,7 @@ The web interface will be available at `http://localhost:8501`
 
 ```
 company_raisefund/
-├── auto_crawl.py          # Main crawling script
+├── crawl_all.py           # Main crawling script
 ├── app_streamlit.py       # Web interface
 ├── techcrunch_crawler.py  # TechCrunch specific crawler
 ├── finsmes_crawler.py     # Finsmes specific crawler
