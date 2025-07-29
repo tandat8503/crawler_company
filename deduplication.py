@@ -1,27 +1,28 @@
 import re
-import os
 import csv
 from datetime import datetime
-from collections import OrderedDict
-from .db import get_all_companies
-from .utils.logger import logger
+import os
+
+import config
+from db import get_all_companies
+from utils.logger import logger
 
 def normalize_company_name(name):
     """
-    Chuẩn hóa tên công ty - phiên bản cải tiến
+    Normalize company name - improved version
     
     Args:
-        name: Tên công ty gốc
+        name: Original company name
     
     Returns:
-        Tên công ty đã được chuẩn hóa
+        Normalized company name
     """
     if not name:
         return ''
     
     name = name.lower().strip()
     
-    # Danh sách từ khóa cần loại bỏ
+    # List of keywords to remove
     blacklist = [
         'inc', 'ltd', 'corp', 'co', 'corporation', 'limited', 'llc', 'plc', 
         'group', 'holdings', 'holding', 'company', 'companies',
@@ -33,11 +34,11 @@ def normalize_company_name(name):
         'technologies.', 'tech.'
     ]
     
-    # Loại bỏ các từ khóa
+    # Remove keywords
     for word in blacklist:
         name = re.sub(r'\b' + re.escape(word) + r'\b', '', name)
     
-    # Loại bỏ ký tự đặc biệt và khoảng trắng thừa
+    # Remove special characters and extra whitespace
     name = re.sub(r'[^a-z0-9]', '', name)
     name = name.strip()
     
@@ -98,25 +99,28 @@ def normalize_date(date_str):
 
 def load_existing_entries():
     """
-    Tải các bản ghi hiện có từ database để loại bỏ trùng lặp.
-    Trả về một tập hợp các bộ ba (tên_công_ty_chuẩn_hóa, ngày_gọi_vốn_chuẩn_hóa, url_bài_viết).
+    Load existing article URLs from database for early deduplication.
+    Returns a SET of article_urls.
     """
-    existing_keys = set()
+    existing_urls = set()
     try:
         rows = get_all_companies()
         for row in rows:
-            company_name, raised_date, article_url, source = row
-            normalized_name = normalize_company_name(company_name)
-            normalized_date_str = normalize_date(raised_date)
-            existing_keys.add((normalized_name, normalized_date_str, article_url))
-        logger.info(f"Loaded {len(existing_keys)} existing entries for deduplication")
+            # Assume get_all_companies returns (article_url,) or (company_name, raised_date, article_url, source)
+            if len(row) == 1:
+                # If only returning article_url
+                existing_urls.add(row[0])
+            elif len(row) >= 3:
+                # If returning multiple columns, get article_url (usually 3rd column)
+                existing_urls.add(row[2])
+        logger.info(f"Loaded {len(existing_urls)} existing article URLs for deduplication")
     except Exception as e:
         logger.error(f"Error loading existing entries from DB: {e}")
-    return existing_keys
+    return existing_urls
 
 def verify_and_normalize_link(company_name, link, link_type='website'):
     """
-    Verify và normalize link dựa trên tên công ty
+    Verify and normalize link based on company name
     """
     if not link or not company_name:
         return link

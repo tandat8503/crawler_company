@@ -6,7 +6,7 @@ import os
 import logging
 from datetime import datetime, timedelta, date
 import openai
-from . import config
+import config
 import validators
 from urllib.parse import urlparse
 from thefuzz import fuzz
@@ -15,9 +15,9 @@ from thefuzz import fuzz
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Initialize OpenAI client properly
-import openai
+# Configure OpenAI
 openai.api_key = config.OPENAI_API_KEY
+openai.api_base = config.LLM_API_URL
 
 def is_valid_url(url):
     """Check if URL is valid"""
@@ -34,9 +34,9 @@ def safe_parse_json(content):
             try:
                 return json.loads(match.group(0))
             except Exception:
-                logger.warning(f"JSON parse error: {e}\nContent: {content[:200]}...")
+                logger.warning(f"JSON parse error (regex fallback failed): {e}\nContent: {content[:500]}...")
                 return None
-        logger.warning(f"JSON parse error: {e}\nContent: {content[:200]}...")
+        logger.warning(f"JSON parse error (no JSON found): {e}\nContent: {content[:500]}...")
         return None
 
 def normalize_domain(url):
@@ -71,16 +71,12 @@ def company_name_matches_domain(company_name, domain):
     score = fuzz.partial_ratio(norm_company, norm_domain)
     return score
 
-def llm_prompt(prompt_text, max_tokens=512, temperature=0, model=None):
+def llm_prompt(prompt_text, max_tokens=1024, temperature=0.1, model=None):
     """Call common LLM, easy to switch models"""
     if model is None:
         model = config.LLM_MODEL_ID
     
     try:
-        # Sử dụng cách khởi tạo cũ để tránh lỗi proxies
-        openai.api_key = config.OPENAI_API_KEY
-        openai.api_base = config.LLM_API_URL
-        
         response = openai.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt_text}],
@@ -94,7 +90,7 @@ def llm_prompt(prompt_text, max_tokens=512, temperature=0, model=None):
 
 def has_funding_keywords(text):
     """Check funding keywords before calling LLM"""
-    # More comprehensive funding keywords
+    # More comprehensive funding keywords to avoid false positives
     funding_keywords = [
         # Direct funding terms
         'raises', 'raised', 'funding round', 'investment round', 'series a', 'series b', 'series c',
@@ -110,7 +106,7 @@ def has_funding_keywords(text):
         'equity funding', 'debt funding', 'convertible note', 'pre-seed funding',
         'growth funding', 'expansion funding', 'strategic investment',
         
-        # Amount patterns
+        # Amount patterns (only in funding context)
         'million in funding', 'billion in funding', 'million investment', 'billion investment',
         'million raised', 'billion raised', 'million funding', 'billion funding',
         'million capital', 'billion capital', 'million financing', 'billion financing',
@@ -130,7 +126,13 @@ def has_funding_keywords(text):
         
         # More flexible patterns
         'funding', 'investment', 'capital', 'financing', 'backing', 'support',
-        'funded', 'invested', 'backed', 'supported', 'financed'
+        'funded', 'invested', 'backed', 'supported', 'financed',
+        
+        # Additional funding-related terms
+        'round of funding', 'funding announcement', 'investment announcement',
+        'capital injection', 'equity round', 'debt round', 'convertible round',
+        'bridge round', 'extension round', 'follow-on round',
+        'initial funding', 'seed capital', 'startup funding', 'tech funding'
     ]
     
     text_lower = text.lower()
@@ -145,12 +147,13 @@ def has_funding_keywords(text):
     if not found_keywords:
         return False
     
-    # If keywords found, check for false positive context
+    # Additional context check for common false positives
     false_positive_indicators = [
         'competition', 'challenge', 'contest', 'award', 'grant', 'prize',
         'million users', 'billion users', 'million downloads', 'billion downloads',
         'million revenue', 'billion revenue', 'million valuation', 'billion valuation',
-        'partnership', 'deal', 'agreement', 'contract', 'service', 'product launch'
+        'partnership', 'deal', 'agreement', 'contract', 'service', 'product launch',
+        'acquisition', 'merger', 'ipo', 'initial public offering', 'public listing'
     ]
     
     # Check if there are false positive indicators
@@ -205,8 +208,6 @@ def has_funding_keywords(text):
     
     # Only return True if there are multiple funding-related terms
     return funding_related_count >= 2
-    
-
 
 def is_funding_article_llm(article_text):
     """
@@ -231,17 +232,21 @@ def is_funding_article_llm(article_text):
         "- Awards, grants, or non-investment funding\n"
         "- Company performance, revenue, or other business metrics\n"
         "- Technology news, AI competitions, or other non-funding topics\n\n"
-        "Return JSON: {\"is_funding\": true/false, \"reason\": \"explanation\"}\n\n"
-        f"Article:\n{article_text[:2000]}..."
+        "IMPORTANT: Return ONLY a JSON object with this exact format:\n"
+        "{\"is_funding\": true/false, \"reason\": \"brief explanation\"}\n\n"
+        f"Article:\n{article_text[:3000]}..."
     )
     
-    content = llm_prompt(prompt, max_tokens=128)
+    content = llm_prompt(prompt, max_tokens=256)
     if not content:
-        # If LLM call fails, fall back to keyword check
-        logger.warning("LLM call failed, falling back to keyword check")
-        return has_funding_keywords(article_text)
+        logger.error("LLM returned no content for funding article check")
+        return False
     
     result = safe_parse_json(content)
+    if not result:
+        logger.error(f"Could not parse JSON from LLM content. Raw content: {content[:1000]}...")
+        return False
+    
     if result and result.get('is_funding'):
         logger.info(f"Funding article detected: {result.get('reason', '')}")
         return True
@@ -273,7 +278,7 @@ def extract_company_name_and_raised_date_llm(article_text, min_date, max_date):
         "2. Funding announcement date (if any)\n"
         "3. Funding amount (if any)\n"
         "4. Funding round type (if any)\n\n"
-        "Return JSON:\n"
+        "IMPORTANT: Return ONLY a JSON object with this exact format:\n"
         "{\n"
         '  "company_name": "company name",\n'
         '  "raised_date": "YYYY-MM-DD",\n'
@@ -281,14 +286,19 @@ def extract_company_name_and_raised_date_llm(article_text, min_date, max_date):
         '  "round_type": "round type"\n'
         "}\n\n"
         f"Date range: {min_date} to {max_date}\n"
-        f"Article:\n{article_text[:1500]}..."
+        f"Article:\n{article_text[:2000]}..."
     )
     
-    content = llm_prompt(prompt, max_tokens=256)
+    content = llm_prompt(prompt, max_tokens=512)
     if not content:
+        logger.error("LLM returned no content for company extraction")
         return None
     
     result = safe_parse_json(content)
+    if not result:
+        logger.error(f"Could not parse JSON from LLM content. Raw content: {content[:1000]}...")
+        return None
+    
     if result:
         logger.info(f"Extracted company: {result.get('company_name', '')}")
         return result
@@ -308,39 +318,36 @@ def extract_funding_info_llm(article_text):
         "2. Official website (if mentioned in text, leave empty if not found)\n"
         "3. Company LinkedIn link (if not in text, leave empty)\n"
         "4. Date company raised funding (if any, format YYYY-MM-DD, leave empty if not found)\n"
-        "Return result in JSON format with keys: company_name, website, linkedin, raised_date.\n"
-        "Return only JSON, no additional explanation.\n\n"
+        "IMPORTANT: Return ONLY a JSON object with this exact format:\n"
+        "{\n"
+        '  "company_name": "company name",\n'
+        '  "website": "website url",\n'
+        '  "linkedin": "linkedin url",\n'
+        '  "raised_date": "YYYY-MM-DD"\n'
+        "}\n\n"
         f"Text:\n{candidate_text}\n\nJSON:"
     )
-    response = openai.chat.completions.create(
-        model=config.LLM_MODEL_ID,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=256,
-        temperature=0
-    )
-    content = response.choices[0].message.content.strip()
-    try:
-        result = json.loads(content)
-    except Exception as e:
-        match = re.search(r'\{.*\}', content, re.DOTALL)
-        if match:
-            try:
-                result = json.loads(match.group(0))
-            except Exception:
-                result = None
-        else:
-            print(f"LLM JSON parse error: {e}\nLLM content: {content}")
-            result = None
+    
+    content = llm_prompt(prompt, max_tokens=512)
+    if not content:
+        logger.error("LLM returned no content for funding info extraction")
+        return None
+    
+    result = safe_parse_json(content)
+    if not result:
+        logger.error(f"Could not parse JSON from LLM content. Raw content: {content[:1000]}...")
+        return None
+    
     # 3. Fallback search nếu thiếu website/linkedin
     if result:
         company_name = result.get('company_name', '').strip()
         # Fallback website
         if not result.get('website') and company_name:
-            from .search_utils import find_company_website
+            from search_utils import find_company_website
             result['website'] = find_company_website(company_name)
         # Fallback linkedin
         if not result.get('linkedin') and company_name:
-            from .search_utils import find_company_linkedin
+            from search_utils import find_company_linkedin
             result['linkedin'] = find_company_linkedin(company_name)
     return result
 
@@ -360,7 +367,7 @@ def extract_company_info_llm(article_text, links_context=None):
         "3. Official LinkedIn (if mentioned in article or can be inferred)\n"
         "4. If website not found, guess 3 possible domains (e.g., alix.com, alix.ai, getalix.com)\n"
         "5. If LinkedIn not found, guess possible LinkedIn URL\n\n"
-        "Return JSON:\n"
+        "IMPORTANT: Return ONLY a JSON object with this exact format:\n"
         "{\n"
         '  "company_name": "company name",\n'
         '  "website": "official website",\n'
@@ -370,14 +377,19 @@ def extract_company_info_llm(article_text, links_context=None):
         '  "confidence": "high/medium/low",\n'
         '  "reasoning": "explanation"\n'
         "}\n\n"
-        f"Article:\n{article_text[:1500]}...{links_info}"
+        f"Article:\n{article_text[:2000]}...{links_info}"
     )
     
-    content = llm_prompt(prompt, max_tokens=512)
+    content = llm_prompt(prompt, max_tokens=1024)
     if not content:
+        logger.error("LLM returned no content for company info extraction")
         return None
     
     result = safe_parse_json(content)
+    if not result:
+        logger.error(f"Could not parse JSON from LLM content. Raw content: {content[:1000]}...")
+        return None
+    
     if result:
         logger.info(f"LLM extracted: {result.get('company_name', '')} | confidence: {result.get('confidence', '')}")
         return result
@@ -461,18 +473,17 @@ def find_company_website_llm(company_name, context=""):
     prompt = (
         f"What is the official website of the startup company named '{company_name}'{f', {context}' if context else ''}? Only return the URL, nothing else. If you are not sure, return 'unknown'."
     )
-    response = openai.chat.completions.create(
-        model=config.LLM_MODEL_ID,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=32,
-        temperature=0
-    )
-    url = response.choices[0].message.content.strip()
+    
+    content = llm_prompt(prompt, max_tokens=32)
+    if not content:
+        return '', True
+    
+    url = content.strip()
     if is_valid_url(url):
-        print(f"[DEBUG][LLM WEBSITE] {company_name} | {url}")
+        logger.info(f"[DEBUG][LLM WEBSITE] {company_name} | {url}")
         return url, False  # False = ambiguous
     if url.lower() != 'unknown':
-        print(f"[DEBUG][LLM WEBSITE GUESS] {company_name} | {url}")
+        logger.info(f"[DEBUG][LLM WEBSITE GUESS] {company_name} | {url}")
         return url, True  # True = ambiguous
     return '', True
 
@@ -483,18 +494,17 @@ def find_company_linkedin_llm(company_name, context=""):
     prompt = (
         f"What is the LinkedIn page URL of the startup company named '{company_name}'{f', {context}' if context else ''}? Only return the URL, nothing else. If you are not sure, return 'unknown'."
     )
-    response = openai.chat.completions.create(
-        model=config.LLM_MODEL_ID,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=32,
-        temperature=0
-    )
-    url = response.choices[0].message.content.strip()
+    
+    content = llm_prompt(prompt, max_tokens=32)
+    if not content:
+        return '', True
+    
+    url = content.strip()
     if is_valid_url(url) and "linkedin.com/company" in url:
-        print(f"[DEBUG][LLM LINKEDIN] {company_name} | {url}")
+        logger.info(f"[DEBUG][LLM LINKEDIN] {company_name} | {url}")
         return url, False
     if url.lower() != 'unknown':
-        print(f"[DEBUG][LLM LINKEDIN GUESS] {company_name} | {url}")
+        logger.info(f"[DEBUG][LLM LINKEDIN GUESS] {company_name} | {url}")
         return url, True
     return '', True
 
@@ -527,4 +537,123 @@ def is_negative_news(article_text):
         'ipo anchor price range', 'ipo anchor price discovery'
     ]
     text = article_text.lower()
-    return any(kw in text for kw in negative_keywords) 
+    return any(kw in text for kw in negative_keywords)
+
+def extract_funding_amount_llm(article_text):
+    """
+    Extract funding amount from article text using LLM
+    """
+    prompt = (
+        "Extract the funding amount from this article. "
+        "Look for specific amounts mentioned in the context of funding, investment, or raising money.\n\n"
+        "IMPORTANT: Return ONLY a JSON object with this exact format:\n"
+        "{\n"
+        '  "amount": "amount in USD (e.g., $10M, $50 million)",\n'
+        '  "currency": "USD",\n'
+        '  "confidence": "high/medium/low"\n'
+        "}\n\n"
+        f"Article:\n{article_text[:1500]}..."
+    )
+    
+    content = llm_prompt(prompt, max_tokens=256)
+    if not content:
+        logger.error("LLM returned no content for funding amount extraction")
+        return None
+    
+    result = safe_parse_json(content)
+    if not result:
+        logger.error(f"Could not parse JSON from LLM content. Raw content: {content[:1000]}...")
+        return None
+    
+    return result
+
+def extract_funding_round_type_llm(article_text):
+    """
+    Extract funding round type from article text using LLM
+    """
+    prompt = (
+        "Extract the funding round type from this article. "
+        "Look for terms like Series A, Series B, Series C, Seed, Pre-seed, etc.\n\n"
+        "IMPORTANT: Return ONLY a JSON object with this exact format:\n"
+        "{\n"
+        '  "round_type": "round type (e.g., Series A, Seed, Pre-seed)",\n'
+        '  "confidence": "high/medium/low"\n'
+        "}\n\n"
+        f"Article:\n{article_text[:1500]}..."
+    )
+    
+    content = llm_prompt(prompt, max_tokens=256)
+    if not content:
+        logger.error("LLM returned no content for funding round extraction")
+        return None
+    
+    result = safe_parse_json(content)
+    if not result:
+        logger.error(f"Could not parse JSON from LLM content. Raw content: {content[:1000]}...")
+        return None
+    
+    return result
+
+def validate_company_name_llm(company_name, article_text):
+    """
+    Validate if the extracted company name is correct using LLM
+    """
+    prompt = (
+        f"Validate if '{company_name}' is the correct company name mentioned in this article.\n\n"
+        "Consider:\n"
+        "- Is this the main company being discussed?\n"
+        "- Is this the company that raised funding?\n"
+        "- Are there any other companies mentioned that might be more relevant?\n\n"
+        "IMPORTANT: Return ONLY a JSON object with this exact format:\n"
+        "{\n"
+        '  "is_valid": true/false,\n'
+        '  "corrected_name": "correct name if different",\n'
+        '  "confidence": "high/medium/low",\n'
+        '  "reason": "explanation"\n'
+        "}\n\n"
+        f"Article:\n{article_text[:1500]}..."
+    )
+    
+    content = llm_prompt(prompt, max_tokens=512)
+    if not content:
+        logger.error("LLM returned no content for company name validation")
+        return None
+    
+    result = safe_parse_json(content)
+    if not result:
+        logger.error(f"Could not parse JSON from LLM content. Raw content: {content[:1000]}...")
+        return None
+    
+    return result
+
+def extract_multiple_companies_llm(article_text):
+    """
+    Extract multiple companies if the article mentions more than one company
+    """
+    prompt = (
+        "Extract all companies mentioned in this article that are related to funding or investment.\n\n"
+        "IMPORTANT: Return ONLY a JSON object with this exact format:\n"
+        "{\n"
+        '  "companies": [\n'
+        '    {\n'
+        '      "name": "company name",\n'
+        '      "role": "investor/startup/other",\n'
+        '      "funding_amount": "amount if startup",\n'
+        '      "round_type": "round type if startup"\n'
+        '    }\n'
+        '  ]\n'
+        "}\n\n"
+        f"Article:\n{article_text[:2000]}..."
+    )
+    
+    content = llm_prompt(prompt, max_tokens=1024)
+    if not content:
+        logger.error("LLM returned no content for multiple companies extraction")
+        return None
+    
+    result = safe_parse_json(content)
+    if not result:
+        logger.error(f"Could not parse JSON from LLM content. Raw content: {content[:1000]}...")
+        return None
+    
+    return result 

@@ -1,9 +1,9 @@
 import sqlite3
 from contextlib import closing
 import os
-from .utils.logger import logger
+from utils.logger import logger
 
-DB_PATH = os.path.join(os.path.dirname(__file__), '../companies.db')
+DB_PATH = os.path.join(os.path.dirname(__file__), 'companies.db')
 
 def get_connection():
     return sqlite3.connect(DB_PATH)
@@ -82,12 +82,12 @@ def get_companies(start_date=None, end_date=None):
 
 def get_all_companies():
     """
-    Lấy tất cả companies từ database để deduplication
+    Get all article_urls from database for deduplication.
     """
     try:
         with closing(get_connection()) as conn:
             c = conn.cursor()
-            c.execute('SELECT company_name, raised_date, article_url, source FROM companies')
+            c.execute('SELECT article_url FROM companies')
             rows = c.fetchall()
             return rows
     except Exception as e:
@@ -96,14 +96,14 @@ def get_all_companies():
 
 def insert_many_companies(entries: list):
     """
-    Chèn nhiều bản ghi vào bảng companies cùng một lúc.
-    Sử dụng 'INSERT OR IGNORE' để bỏ qua các bản ghi có article_url đã tồn tại.
+    Insert multiple records into companies table at once.
+    Uses 'INSERT OR IGNORE' to skip records with existing article_url.
     
     Args:
-        entries: List các dict chứa thông tin company
+        entries: List of dicts containing company information
     
     Returns:
-        Số lượng bản ghi đã được chèn thành công
+        Number of successfully inserted records
     """
     if not entries:
         return 0
@@ -111,7 +111,7 @@ def insert_many_companies(entries: list):
     try:
         with closing(get_connection()) as conn:
             c = conn.cursor()
-            # Chuyển đổi list of dicts thành list of tuples
+            # Convert list of dicts to list of tuples
             to_insert = [
                 (
                     d.get('raised_date'),
@@ -126,7 +126,7 @@ def insert_many_companies(entries: list):
                 ) for d in entries
             ]
 
-            # 'OR IGNORE' sẽ bỏ qua lỗi nếu article_url (UNIQUE) đã tồn tại
+            # 'OR IGNORE' will skip errors if article_url (UNIQUE) already exists
             c.executemany('''
                 INSERT OR IGNORE INTO companies (
                     raised_date, company_name, website, linkedin, article_url, 

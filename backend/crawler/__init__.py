@@ -1,1 +1,0 @@
-# Crawler package for company funding 
