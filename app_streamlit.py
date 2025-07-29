@@ -173,17 +173,16 @@ def get_database_stats():
         st.error(f"Error getting database stats: {e}")
         return None
 
-def fetch_all_companies(limit=100):
-    """Fetch all companies from database"""
+def fetch_all_companies():
+    """Fetch ALL companies from database without any limit"""
     try:
         with get_connection() as conn:
             query = """
             SELECT * FROM companies 
             ORDER BY date(raised_date) DESC, id DESC 
-            LIMIT ?
             """
             cursor = conn.cursor()
-            cursor.execute(query, (limit,))
+            cursor.execute(query)
             rows = cursor.fetchall()
             columns = [desc[0] for desc in cursor.description]
             return [dict(zip(columns, row)) for row in rows]
@@ -220,10 +219,6 @@ def fetch_companies_with_filters(filters):
             
             query += " ORDER BY date(raised_date) DESC, id DESC"
             
-            if filters.get('limit'):
-                query += " LIMIT ?"
-                params.append(filters['limit'])
-            
             cursor = conn.cursor()
             cursor.execute(query, params)
             rows = cursor.fetchall()
@@ -251,7 +246,7 @@ def search_companies(query, search_type="all"):
                 """
                 params = [f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"]
             
-            sql_query += " ORDER BY date(raised_date) DESC, id DESC LIMIT 100"
+            sql_query += " ORDER BY date(raised_date) DESC, id DESC"
             
             cursor = conn.cursor()
             cursor.execute(sql_query, params)
@@ -365,10 +360,11 @@ def home_page():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
     
-    # Recent companies table
-    st.markdown('<h2 class="sub-header">📋 Recent Companies</h2>', unsafe_allow_html=True)
+    # ALL companies table - NO LIMIT
+    st.markdown('<h2 class="sub-header">📋 All Companies in Database</h2>', unsafe_allow_html=True)
     
-    companies = fetch_all_companies(50)  # Show last 50 companies
+    with st.spinner("Loading all companies from database..."):
+        companies = fetch_all_companies()  # Fetch ALL companies without limit
     
     if companies:
         df = pd.DataFrame(companies)
@@ -387,19 +383,19 @@ def home_page():
         display_columns = ['raised_date', 'company_name', 'amount_raised', 'funding_round', 'source', 'website', 'linkedin', 'article_url']
         available_columns = [col for col in display_columns if col in df.columns]
         
-        st.write(f"**Showing {len(companies)} most recent companies**")
+        st.write(f"**Showing ALL {len(companies)} companies from database**")
         st.write(df[available_columns].to_html(escape=False, index=False), unsafe_allow_html=True)
         
         # Download all data
         csv_data = df.to_csv(index=False)
         st.download_button(
-            label="📥 Download All Data (CSV)",
+            label="📥 Download ALL Data (CSV)",
             data=csv_data,
             file_name=f"all_companies_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv"
         )
         
-        if st.button("📋 View All Companies with Filters"):
+        if st.button("📋 View with Advanced Filters"):
             st.session_state.current_page = "companies"
             st.rerun()
     else:
@@ -446,8 +442,6 @@ def companies_page():
         # Amount range
         min_amount = st.number_input("Min Amount ($)", min_value=0, value=0, step=100000)
         max_amount = st.number_input("Max Amount ($)", min_value=0, value=10000000, step=100000)
-        
-        limit = st.number_input("Limit", min_value=1, max_value=1000, value=100)
     
     # Apply filters
     filters = {
@@ -456,12 +450,12 @@ def companies_page():
         'start_date': str(start_date),
         'end_date': str(end_date),
         'min_amount': min_amount,
-        'max_amount': max_amount,
-        'limit': limit
+        'max_amount': max_amount
     }
     
     # Fetch and display data
-    companies = fetch_companies_with_filters(filters)
+    with st.spinner("Loading filtered companies..."):
+        companies = fetch_companies_with_filters(filters)
     
     if companies:
         df = pd.DataFrame(companies)
