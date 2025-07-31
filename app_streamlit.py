@@ -138,15 +138,13 @@ def main():
     st.sidebar.title("Navigation")
     page = st.sidebar.selectbox(
         "Choose a page:",
-        ["🏠 Home", "🤖 Natural Language Crawler", "🚀 AI Auto-Discovery", "🕷️ Universal Crawler", "📊 Data View", "🔍 Search & Filter", "⚙️ Settings"]
+        ["🏠 Home", "🤖 Natural Language Crawler", "🕷️ Universal Crawler", "📊 Data View", "🔍 Search & Filter", "⚙️ Settings"]
     )
     
     if page == "🏠 Home":
         show_dashboard()
     elif page == "🤖 Natural Language Crawler":
         show_natural_language_crawler()
-    elif page == "🚀 AI Auto-Discovery":
-        show_ai_auto_discovery()
     elif page == "🕷️ Universal Crawler":
         show_universal_crawler()
     elif page == "📊 Data View":
@@ -645,257 +643,9 @@ def parse_natural_language_prompt(prompt):
     
     return None
 
-def show_ai_auto_discovery():
-    """Display the AI Auto-Discovery interface."""
-    st.header("🤖 AI Auto-Discovery")
-    
-    st.info("🚀 **Tính năng mới**: AI sẽ tự động phân tích và crawl bất kỳ trang web nào mà không cần cấu hình trước!")
-    
-    # Features explanation
-    with st.expander("✨ Tính năng AI Auto-Discovery"):
-        st.markdown("""
-        **🤖 AI phân tích website:**
-        - Tự động hiểu cấu trúc website
-        - Xác định loại website (news, blog, e-commerce...)
-        - Tìm chiến lược crawl tối ưu
-        
-        **🔍 Tự động phát hiện:**
-        - Tìm navigation links
-        - Phát hiện article patterns
-        - Xác định content selectors
-        
-        **📰 Crawl thông minh:**
-        - Sử dụng sitemap nếu có
-        - Crawl category pages
-        - Fallback về generic strategy
-        
-        **🎯 Không cần cấu hình:**
-        - Không cần thêm vào sources.json
-        - Không cần viết code mới
-        - Hoạt động với mọi website
-        """)
-    
-    # Input section with smart detection
-    st.markdown("### 🌐 Nhập thông tin website")
-    
-    # Input method selection
-    input_method = st.radio(
-        "Chọn cách nhập:",
-        ["🔗 URL trực tiếp", "🤖 Prompt tự nhiên"],
-        horizontal=True
-    )
-    
-    if input_method == "🔗 URL trực tiếp":
-        website_input = st.text_input(
-            "Nhập URL website:",
-            placeholder="https://example.com hoặc https://news.example.com",
-            help="Nhập URL bất kỳ website nào bạn muốn crawl"
-        )
-        
-        # Validate URL
-        if website_input:
-            if not is_valid_url(website_input):
-                st.error("❌ URL không hợp lệ. Vui lòng nhập URL đúng định dạng (ví dụ: https://example.com)")
-                website_input = None
-            else:
-                st.success(f"✅ URL hợp lệ: {website_input}")
-    
-    else:  # Natural language prompt
-        website_input = st.text_area(
-            "Nhập yêu cầu bằng tiếng Việt hoặc tiếng Anh:",
-            placeholder="Ví dụ: Tôi muốn lấy tin từ vnexpress hoặc Crawl dữ liệu từ techcrunch.com/startups",
-            height=100,
-            help="Nhập yêu cầu tự nhiên, AI sẽ tự động hiểu và tìm website phù hợp"
-        )
-        
-        if website_input:
-            # Parse natural language to URL
-            parsed_url = parse_natural_language_prompt(website_input)
-            if parsed_url:
-                st.success(f"✅ AI đã hiểu yêu cầu: {parsed_url}")
-                website_input = parsed_url
-            else:
-                st.warning("⚠️ AI không thể hiểu yêu cầu. Vui lòng thử lại với prompt rõ ràng hơn.")
-                website_input = None
-    
-    # Advanced options
-    with st.expander("⚙️ Tùy chọn nâng cao"):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            max_articles = st.slider("Số bài báo tối đa:", min_value=5, max_value=50, value=20)
-        with col2:
-            save_to_db = st.checkbox("💾 Tự động lưu vào Database", value=False, help="Nếu bỏ chọn, bạn sẽ có thể xem xét dữ liệu trước khi lưu")
-        with col3:
-            auto_process = st.checkbox("🧠 Tự động phân tích nội dung", value=True, help="Tự động trích xuất thông tin funding")
-    
-    # Crawl button
-    if st.button("🚀 AI Auto-Discovery & Crawl", type="primary", disabled=not website_input):
-        if website_input:
-            with st.spinner("🤖 AI đang phân tích website..."):
-                try:
-                    # Import AI Auto-Discovery
-                    from ai_auto_discovery import auto_crawl_website_async
-                    
-                    # Step 1: Analyze website
-                    st.info("🔍 Đang phân tích cấu trúc website...")
-                    
-                    # Step 2: Auto-crawl
-                    results = asyncio.run(auto_crawl_website_async(website_input, max_articles))
-                    
-                    if results and not results[0].get('error'):
-                        st.success(f"✅ AI đã crawl thành công {len(results)} bài báo!")
-                        
-                        # Display results summary
-                        successful = [r for r in results if r.get('success')]
-                        st.info(f"📊 Kết quả: {len(successful)} thành công / {len(results)} tổng cộng")
-                        
-                        # Display results in table format
-                        if successful:
-                            if auto_process:
-                                # Auto-process with LLM
-                                with st.spinner("🧠 AI đang phân tích nội dung..."):
-                                    processed_results = asyncio.run(process_auto_discovered_articles(successful))
-                                    if processed_results:
-                                        st.success("✅ Đã phân tích nội dung thành công!")
-                                        display_company_data(processed_results, show_save_button=not save_to_db, save_to_db=save_to_db)
-                                        
-                                        # Auto-save to database if requested
-                                        if save_to_db and processed_results:
-                                            from db import insert_many_companies
-                                            num_inserted = insert_many_companies(processed_results)
-                                            st.success(f"💾 Đã tự động lưu {num_inserted} bản ghi vào database!")
-                                            
-                                            # Auto-refresh cache
-                                            st.info("🔄 Đang cập nhật dữ liệu...")
-                                            st.cache_data.clear()
-                                            st.rerun()
-                                    else:
-                                        st.warning("⚠️ Không thể phân tích nội dung. Hiển thị dữ liệu thô...")
-                                        display_raw_results(successful)
-                            else:
-                                # Display raw results
-                                display_raw_results(successful)
-                                
-                                # Manual process option
-                                if st.button("🧠 Phân tích nội dung với AI"):
-                                    with st.spinner("AI đang phân tích nội dung..."):
-                                        processed_results = asyncio.run(process_auto_discovered_articles(successful))
-                                        if processed_results:
-                                            st.success("✅ Đã phân tích nội dung thành công!")
-                                            display_company_data(processed_results)
-                                            
-                                            # Save to database if requested
-                                            if save_to_db and processed_results:
-                                                from db import insert_many_companies
-                                                num_inserted = insert_many_companies(processed_results)
-                                                st.success(f"💾 Đã tự động lưu {num_inserted} bản ghi vào database!")
-                        
-                        # Show failed results
-                        failed_results = [r for r in results if not r.get('success')]
-                        if failed_results:
-                            with st.expander(f"⚠️ {len(failed_results)} kết quả thất bại"):
-                                for i, result in enumerate(failed_results):
-                                    st.error(f"**{i+1}. {result.get('url', 'URL không xác định')}**: {result.get('error')}")
-                    else:
-                        error_msg = results[0].get('error') if results else "Không có kết quả"
-                        
-                        # Check if it's a bot blocking error
-                        if "chặn bot" in error_msg.lower() or "bot blocked" in error_msg.lower() or "403" in error_msg:
-                            st.error(f"🚫 **Bot bị chặn**: {error_msg}")
-                            
-                            # Show bot blocking solutions
-                            with st.expander("🔧 Giải pháp khắc phục bot blocking"):
-                                st.markdown("""
-                                **Website đang chặn bot. Thử các giải pháp sau:**
-                                
-                                🔄 **1. Thử lại sau:**
-                                - Đợi 5-10 phút rồi thử lại
-                                - Website có thể tạm thời chặn do quá nhiều request
-                                
-                                🌐 **2. Sử dụng VPN:**
-                                - Thay đổi IP address
-                                - Sử dụng VPN khác nhau
-                                
-                                ⏰ **3. Giảm tốc độ:**
-                                - Giảm số bài báo tối đa
-                                - Thêm delay giữa các request
-                                
-                                🎯 **4. Thử website khác:**
-                                - Website này có thể có chính sách chặn bot nghiêm ngặt
-                                - Thử nguồn tin tương tự khác
-                                
-                                📧 **5. Liên hệ admin:**
-                                - Nếu cần crawl thường xuyên, liên hệ website để xin permission
-                                """)
-                        else:
-                            st.error(f"❌ AI Auto-Discovery thất bại: {error_msg}")
-                        
-                        # Provide general suggestions
-                        st.markdown("### 💡 Gợi ý khắc phục:")
-                        st.markdown("""
-                        1. **Kiểm tra URL**: Đảm bảo URL đúng và website có thể truy cập
-                        2. **Thử URL khác**: Thử với URL cụ thể hơn (ví dụ: /news thay vì homepage)
-                        3. **Kiểm tra kết nối**: Đảm bảo có kết nối internet ổn định
-                        4. **Thử lại sau**: Một số website có thể tạm thời không khả dụng
-                        5. **Sử dụng VPN**: Nếu bị chặn bot, thử sử dụng VPN
-                        """)
-                        
-                except Exception as e:
-                    st.error(f"❌ Lỗi: {str(e)}")
-                    logger.error(f"AI Auto-Discovery error: {e}")
-        else:
-            st.warning("Vui lòng nhập URL website hoặc yêu cầu hợp lệ")
 
-async def process_auto_discovered_articles(articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Process auto-discovered articles with LLM to extract funding information"""
-    from llm_utils import extract_structured_data_llm
-    from utils.data_normalizer import normalize_company_name, normalize_currency_amount, normalize_funding_round
-    
-    processed_results = []
-    
-    for article in articles:
-        try:
-            content = article.get('content', '')
-            if not content:
-                continue
-            
-            # Use LLM to extract funding information
-            extracted_data = await asyncio.to_thread(extract_structured_data_llm, content)
-            
-            if extracted_data and extracted_data.get('company_name'):
-                # Normalize data
-                company_name = normalize_company_name(extracted_data.get('company_name'))
-                
-                amount_raised = extracted_data.get('amount_raised')
-                if amount_raised:
-                    normalized_amount, _ = normalize_currency_amount(str(amount_raised))
-                    amount_raised = normalized_amount
-                
-                funding_round = extracted_data.get('funding_round')
-                if funding_round:
-                    funding_round = normalize_funding_round(funding_round)
-                
-                processed_results.append({
-                    'raised_date': article.get('published_date'),
-                    'company_name': company_name,
-                    'industry': extracted_data.get('industry'),
-                    'ceo_name': extracted_data.get('ceo_name'),
-                    'procurement_name': extracted_data.get('procurement_name'),
-                    'purchasing_name': extracted_data.get('purchasing_name'),
-                    'manager_name': extracted_data.get('manager_name'),
-                    'amount_raised': amount_raised,
-                    'funding_round': funding_round,
-                    'source': article.get('source', 'Auto-Discovered'),
-                    'website': 'N/A',
-                    'linkedin': 'N/A',
-                    'article_url': article.get('url')
-                })
-        
-        except Exception as e:
-            logger.warning(f"Failed to process article {article.get('url')}: {e}")
-            continue
-    
-    return processed_results
+
+
 
 def is_valid_url(url: str) -> bool:
     """Validate if input is a valid URL"""
@@ -920,35 +670,7 @@ def is_valid_url(url: str) -> bool:
     
     return bool(url_pattern.match(url))
 
-def display_raw_results(results: List[Dict[str, Any]]):
-    """Display raw crawled results in a simple format"""
-    if not results:
-        st.warning("Không có dữ liệu để hiển thị")
-        return
-    
-    # Create a simple table
-    data = []
-    for result in results:
-        data.append({
-            'Title': result.get('title', 'N/A'),
-            'URL': result.get('url', 'N/A'),
-            'Date': result.get('published_date', 'N/A'),
-            'Source': result.get('source', 'N/A'),
-            'Content Length': len(result.get('content', ''))
-        })
-    
-    df = pd.DataFrame(data)
-    st.dataframe(df, use_container_width=True)
-    
-    # Show content preview
-    if st.checkbox("👀 Xem nội dung mẫu"):
-        for i, result in enumerate(results[:3]):  # Show first 3
-            with st.expander(f"📄 {result.get('title', 'No title')}"):
-                st.markdown(f"**URL:** {result.get('url')}")
-                st.markdown(f"**Date:** {result.get('published_date')}")
-                st.markdown(f"**Content:**")
-                content = result.get('content', '')
-                st.text(content[:500] + "..." if len(content) > 500 else content)
+
 
 if __name__ == "__main__":
     main()

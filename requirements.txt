@@ -8,7 +8,7 @@ python-dotenv==1.0.0
 
 # AI and search
 tavily-python==0.2.8
-trafilatura==7.4.0
+trafilatura==2.0.0
 
 # Async and utilities
 asyncio-throttle==1.0.2

@@ -6,24 +6,21 @@ Hệ thống **Company Funding Crawler** là một ứng dụng AI tiên tiến 
 
 ## ✨ Tính năng chính
 
-### 🤖 AI Auto-Discovery
-- **Tự động phát hiện**: Crawl bất kỳ website nào mà không cần cấu hình
-- **AI phân tích**: Hiểu cấu trúc website và chọn chiến lược crawl tối ưu
-- **Multi-strategy**: Sitemap → Category pages → Generic → Deep crawl
-- **Bot detection**: Phát hiện và thông báo khi website chặn bot
-
 ### 🤖 Natural Language Crawler
+
 - **Prompt tự nhiên**: Nhập yêu cầu bằng tiếng Việt hoặc tiếng Anh
 - **Auto parsing**: AI tự động hiểu và chuyển đổi thành URL
 - **Smart validation**: Kiểm tra và validate input
 
 ### 🕷️ Universal Crawler
+
 - **22+ nguồn hỗ trợ**: TechCrunch, VnExpress, Finsmes, Crunchbase, v.v.
 - **Auto-detection**: Tự động phát hiện nguồn mới
 - **Date filtering**: Lọc theo khoảng thời gian
 - **Concurrent processing**: Xử lý đồng thời nhiều bài viết
 
 ### 📊 Data Management
+
 - **13 trường dữ liệu**: Đầy đủ thông tin funding
 - **Database storage**: SQLite với schema tối ưu
 - **Export CSV**: Xuất dữ liệu dễ dàng
@@ -33,18 +30,21 @@ Hệ thống **Company Funding Crawler** là một ứng dụng AI tiên tiến 
 ## 🚀 Cài đặt và chạy
 
 ### 1. Cài đặt dependencies
+
 ```bash
 cd company_raisefund
 pip install -r requirements.txt
 ```
 
 ### 2. Cấu hình environment
+
 ```bash
 cp env_example.txt .env
 # Chỉnh sửa .env với API keys của bạn
 ```
 
 ### 3. Chạy ứng dụng
+
 ```bash
 streamlit run app_streamlit.py
 ```
@@ -79,19 +79,14 @@ company_raisefund/
 
 ## 🎯 Cách sử dụng
 
-### 1. AI Auto-Discovery
-1. Chọn "🚀 AI Auto-Discovery"
-2. Chọn input method: URL trực tiếp hoặc Prompt tự nhiên
-3. Nhập URL hoặc prompt: "Tôi muốn lấy tin từ vnexpress"
-4. Cấu hình tùy chọn nâng cao
-5. Nhấn "🚀 AI Auto-Discovery & Crawl"
+### 1. Natural Language Crawler
 
-### 2. Natural Language Crawler
 1. Chọn "🤖 Natural Language Crawler"
 2. Nhập prompt: "Tôi muốn lấy tin về raise fund từ techcrunch"
 3. AI sẽ tự động hiểu và crawl
 
-### 3. Universal Crawler
+### 2. Universal Crawler
+
 1. Chọn "🕷️ Universal Crawler"
 2. Nhập URL list page
 3. Chọn khoảng thời gian
@@ -102,6 +97,7 @@ company_raisefund/
 ## 📊 Cấu trúc dữ liệu
 
 ### 13 trường thông tin
+
 ```python
 {
     'raised_date': '2024-01-15',           # Ngày xuất bản
@@ -123,12 +119,14 @@ company_raisefund/
 ## 🛠️ Troubleshooting
 
 ### Bot Blocking
+
 - **Thử lại sau**: Đợi 5-10 phút
 - **Sử dụng VPN**: Thay đổi IP address
 - **Giảm tốc độ**: Giảm số bài báo tối đa
 - **Thử website khác**: Nguồn tin tương tự
 
 ### Common Issues
+
 1. **"Invalid URL format"**: Kiểm tra URL có đúng định dạng
 2. **"No article URLs found"**: Thử URL cụ thể hơn
 3. **"Network error"**: Kiểm tra kết nối internet
@@ -137,6 +135,7 @@ company_raisefund/
 ## 🔧 Development
 
 ### Test
+
 ```bash
 # Test AI Auto-Discovery
 python3 test_optimized_ai_discovery.py
@@ -152,6 +151,7 @@ streamlit run demo_table_save_feature.py
 ```
 
 ### Database Migration
+
 ```bash
 python3 migrate_db.py
 ```
