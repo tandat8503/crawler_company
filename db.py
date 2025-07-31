@@ -1,144 +1,223 @@
 import sqlite3
-from contextlib import closing
 import os
+from contextlib import closing
 from utils.logger import logger
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'companies.db')
 
-def get_connection():
-    return sqlite3.connect(DB_PATH)
-
 def init_db():
+    """Initialize the database with the new schema."""
     try:
-        with closing(get_connection()) as conn:
+        with closing(sqlite3.connect(DB_PATH)) as conn:
             c = conn.cursor()
             c.execute('''
                 CREATE TABLE IF NOT EXISTS companies (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     raised_date TEXT,
                     company_name TEXT,
-                    website TEXT,
-                    linkedin TEXT,
-                    article_url TEXT UNIQUE,
+                    industry TEXT,
+                    ceo_name TEXT,
+                    procurement_name TEXT,
+                    purchasing_name TEXT,
+                    manager_name TEXT,
                     amount_raised TEXT,
                     funding_round TEXT,
-                    crawl_date TEXT,
-                    source TEXT
+                    source TEXT,
+                    website TEXT,
+                    linkedin TEXT,
+                    article_url TEXT UNIQUE
                 )
             ''')
             conn.commit()
-            logger.info("Database initialized successfully")
+            logger.info("✅ Database initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing database: {e}")
         raise
 
-def insert_company(data):
+def insert_company(raised_date, company_name, industry, ceo_name, procurement_name, 
+                  purchasing_name, manager_name, amount_raised, funding_round, 
+                  source, website, linkedin, article_url):
+    """Insert a single company record."""
     try:
-        with closing(get_connection()) as conn:
+        with closing(sqlite3.connect(DB_PATH)) as conn:
             c = conn.cursor()
             c.execute('''
-                INSERT INTO companies (
-                    raised_date, company_name, website, linkedin, article_url, 
-                    amount_raised, funding_round, crawl_date, source
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                data.get('raised_date'),
-                data.get('company_name'),
-                data.get('website'),
-                data.get('linkedin'),
-                data.get('article_url'),
-                data.get('amount_raised'),
-                data.get('funding_round'),
-                data.get('crawl_date'),
-                data.get('source')
-            ))
+                INSERT OR IGNORE INTO companies (
+                    raised_date, company_name, industry, ceo_name, procurement_name,
+                    purchasing_name, manager_name, amount_raised, funding_round,
+                    source, website, linkedin, article_url
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (raised_date, company_name, industry, ceo_name, procurement_name,
+                  purchasing_name, manager_name, amount_raised, funding_round,
+                  source, website, linkedin, article_url))
             conn.commit()
-            logger.info(f"Successfully inserted: {data.get('company_name', 'N/A')}")
-    except sqlite3.IntegrityError as e:
-        logger.warning(f"Duplicate entry (article_url already exists): {data.get('article_url')}")
-        logger.warning(f"Company: {data.get('company_name', 'N/A')}")
+            return c.rowcount
     except Exception as e:
         logger.error(f"Error inserting company: {e}")
-        logger.error(f"Data: {data}")
-        raise
+        return 0
 
-def get_companies(start_date=None, end_date=None):
-    try:
-        with closing(get_connection()) as conn:
-            c = conn.cursor()
-            query = 'SELECT * FROM companies'
-            params = []
-            if start_date and end_date:
-                query += ' WHERE date(raised_date) BETWEEN date(?) AND date(?)'
-                params = [start_date, end_date]
-            query += ' ORDER BY date(raised_date) DESC'
-            c.execute(query, params)
-            rows = c.fetchall()
-            columns = [desc[0] for desc in c.description]
-            return [dict(zip(columns, row)) for row in rows]
-    except Exception as e:
-        logger.error(f"Error getting companies: {e}")
-        return []
-
-def get_all_companies():
-    """
-    Get all article_urls from database for deduplication.
-    """
-    try:
-        with closing(get_connection()) as conn:
-            c = conn.cursor()
-            c.execute('SELECT article_url FROM companies')
-            rows = c.fetchall()
-            return rows
-    except Exception as e:
-        logger.error(f"Error getting all companies: {e}")
-        return []
-
-def insert_many_companies(entries: list):
-    """
-    Insert multiple records into companies table at once.
-    Uses 'INSERT OR IGNORE' to skip records with existing article_url.
-    
-    Args:
-        entries: List of dicts containing company information
-    
-    Returns:
-        Number of successfully inserted records
-    """
+def insert_many_companies(entries):
+    """Insert multiple company records."""
     if not entries:
         return 0
 
     try:
-        with closing(get_connection()) as conn:
+        with closing(sqlite3.connect(DB_PATH)) as conn:
             c = conn.cursor()
-            # Convert list of dicts to list of tuples
             to_insert = [
                 (
                     d.get('raised_date'),
                     d.get('company_name'),
-                    d.get('website'),
-                    d.get('linkedin'),
-                    d.get('article_url'),
+                    d.get('industry'),
+                    d.get('ceo_name'),
+                    d.get('procurement_name'),
+                    d.get('purchasing_name'),
+                    d.get('manager_name'),
                     d.get('amount_raised'),
                     d.get('funding_round'),
-                    d.get('crawl_date'),
-                    d.get('source')
+                    d.get('source'),
+                    d.get('website'),
+                    d.get('linkedin'),
+                    d.get('article_url')
                 ) for d in entries
             ]
-
-            # 'OR IGNORE' will skip errors if article_url (UNIQUE) already exists
             c.executemany('''
                 INSERT OR IGNORE INTO companies (
-                    raised_date, company_name, website, linkedin, article_url, 
-                    amount_raised, funding_round, crawl_date, source
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    raised_date, company_name, industry, ceo_name, procurement_name,
+                    purchasing_name, manager_name, amount_raised, funding_round,
+                    source, website, linkedin, article_url
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', to_insert)
-
             conn.commit()
-            num_inserted = c.rowcount
-            logger.info(f"Successfully inserted/ignored {len(entries)} entries. New rows: {num_inserted}")
-            return num_inserted
+            return c.rowcount
     except Exception as e:
-        logger.error(f"Error bulk inserting companies: {e}")
-        logger.error(f"Data: {entries[:2]}...")  # Log first 2 entries for debugging
-        raise 
+        logger.error(f"Error inserting many companies: {e}")
+        return 0
+
+def get_all_companies():
+    """Get all companies from database."""
+    try:
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT raised_date, company_name, industry, ceo_name, procurement_name,
+                       purchasing_name, manager_name, amount_raised, funding_round,
+                       source, website, linkedin, article_url
+                FROM companies 
+                ORDER BY id DESC
+            ''')
+            return c.fetchall()
+    except Exception as e:
+        logger.error(f"Error getting companies: {e}")
+        return []
+
+def get_company_count():
+    """Get total number of companies."""
+    try:
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            c = conn.cursor()
+            c.execute('SELECT COUNT(*) FROM companies')
+            return c.fetchone()[0]
+    except Exception as e:
+        logger.error(f"Error getting company count: {e}")
+        return 0
+
+def search_companies(query):
+    """Search companies by name or description."""
+    try:
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT raised_date, company_name, industry, ceo_name, procurement_name,
+                       purchasing_name, manager_name, amount_raised, funding_round,
+                       source, website, linkedin, article_url
+                FROM companies 
+                WHERE company_name LIKE ? OR industry LIKE ? OR ceo_name LIKE ?
+                ORDER BY id DESC
+            ''', (f'%{query}%', f'%{query}%', f'%{query}%'))
+            return c.fetchall()
+    except Exception as e:
+        logger.error(f"Error searching companies: {e}")
+        return []
+
+def get_companies_by_source(source):
+    """Get companies by source."""
+    try:
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT raised_date, company_name, industry, ceo_name, procurement_name,
+                       purchasing_name, manager_name, amount_raised, funding_round,
+                       source, website, linkedin, article_url
+                FROM companies 
+                WHERE source = ?
+                ORDER BY id DESC
+            ''', (source,))
+            return c.fetchall()
+    except Exception as e:
+        logger.error(f"Error getting companies by source: {e}")
+        return []
+
+def get_companies_by_date_range(start_date, end_date):
+    """Get companies within a date range."""
+    try:
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT raised_date, company_name, industry, ceo_name, procurement_name,
+                       purchasing_name, manager_name, amount_raised, funding_round,
+                       source, website, linkedin, article_url
+                FROM companies 
+                WHERE raised_date BETWEEN ? AND ?
+                ORDER BY raised_date DESC
+            ''', (start_date, end_date))
+            return c.fetchall()
+    except Exception as e:
+        logger.error(f"Error getting companies by date range: {e}")
+        return []
+
+def get_latest_companies(limit=10):
+    """Get latest companies."""
+    try:
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT raised_date, company_name, industry, ceo_name, procurement_name,
+                       purchasing_name, manager_name, amount_raised, funding_round,
+                       source, website, linkedin, article_url
+                FROM companies 
+                ORDER BY id DESC
+                LIMIT ?
+            ''', (limit,))
+            return c.fetchall()
+    except Exception as e:
+        logger.error(f"Error getting latest companies: {e}")
+        return []
+
+def delete_company_by_url(article_url):
+    """Delete a company by article URL."""
+    try:
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM companies WHERE article_url = ?', (article_url,))
+            conn.commit()
+            return c.rowcount
+    except Exception as e:
+        logger.error(f"Error deleting company: {e}")
+        return 0
+
+def clear_all_companies():
+    """Clear all companies from database."""
+    try:
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM companies')
+            conn.commit()
+            logger.info("✅ All companies cleared from database")
+            return True
+    except Exception as e:
+        logger.error(f"Error clearing companies: {e}")
+        return False
+
+# Initialize database when module is imported
+init_db() 

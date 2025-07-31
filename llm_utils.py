@@ -10,6 +10,9 @@ import config
 import validators
 from urllib.parse import urlparse
 from thefuzz import fuzz
+from pathlib import Path
+from typing import Dict, Any
+from utils.logger import logger
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -23,21 +26,112 @@ def is_valid_url(url):
     """Check if URL is valid"""
     return validators.url(url)
 
-def safe_parse_json(content):
+def safe_parse_json(content: str) -> Dict[str, Any] | None:
     """Parse JSON safely, handle cases where format is incorrect"""
     try:
         return json.loads(content)
-    except Exception as e:
+    except Exception:
         # Try to find JSON in content
         match = re.search(r'\{.*\}', content, re.DOTALL)
         if match:
             try:
                 return json.loads(match.group(0))
-            except Exception:
+            except Exception as e:
                 logger.warning(f"JSON parse error (regex fallback failed): {e}\nContent: {content[:500]}...")
                 return None
-        logger.warning(f"JSON parse error (no JSON found): {e}\nContent: {content[:500]}...")
+        logger.warning(f"No valid JSON found in content: {content[:500]}...")
         return None
+
+def load_prompts():
+    """Load prompts from configuration file"""
+    try:
+        prompts_path = Path(__file__).parent / "config" / "prompts.json"
+        if prompts_path.exists():
+            with open(prompts_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        else:
+            logger.warning("Prompts config file not found, using default prompts")
+            return {}
+    except Exception as e:
+        logger.error(f"Error loading prompts: {e}")
+        return {}
+
+def get_prompt(prompt_name: str, **kwargs):
+    """Get prompt from configuration and format with parameters"""
+    prompts = load_prompts()
+    if prompt_name not in prompts:
+        logger.error(f"Prompt '{prompt_name}' not found in configuration")
+        return None
+    
+    prompt_config = prompts[prompt_name]
+    prompt_text = prompt_config['prompt']
+    
+    # Format prompt with provided parameters
+    try:
+        formatted_prompt = prompt_text.format(**kwargs)
+        return {
+            'prompt': formatted_prompt,
+            'max_tokens': prompt_config.get('max_tokens', 1024),
+            'temperature': prompt_config.get('temperature', 0.1)
+        }
+    except KeyError as e:
+        logger.error(f"Missing parameter {e} for prompt '{prompt_name}'")
+        return None
+
+def extract_structured_data_llm(article_text: str) -> Dict[str, Any] | None:
+    """
+    HÀM QUAN TRỌNG NHẤT: Một lệnh gọi duy nhất để trích xuất tất cả thông tin.
+    """
+    prompt = f"""
+    You are a highly intelligent news analysis expert. Your task is to analyze the provided text and extract structured information about company funding news.
+
+    Analyze the text and extract the following information:
+
+    1. **raised_date**: The date when the article was published (YYYY-MM-DD format)
+    2. **company_name**: The name of the company that received funding
+    3. **industry**: The industry/sector of the company (e.g., "AI/ML", "Fintech", "Healthcare", "E-commerce", "SaaS", "Biotech", etc.)
+    4. **ceo_name**: The name of the CEO or founder mentioned in the article
+    5. **procurement_name**: The name of the procurement officer or head of procurement if mentioned
+    6. **purchasing_name**: The name of the purchasing manager or head of purchasing if mentioned
+    7. **manager_name**: The name of any other key manager mentioned in the article
+    8. **amount_raised**: The total amount of money raised (as a number, without currency symbol)
+    9. **funding_round**: The type of funding round (e.g., "Seed", "Series A", "Series B", "Pre-Seed", "Angel", etc.)
+    10. **source**: The news source (e.g., "TechCrunch", "Finsmes", "Crunchbase", etc.)
+
+    Please return ONLY a valid JSON object in the following format. Do not add any text before or after the JSON object.
+
+    {{
+        "raised_date": "YYYY-MM-DD" | null,
+        "company_name": "string" | null,
+        "industry": "string" | null,
+        "ceo_name": "string" | null,
+        "procurement_name": "string" | null,
+        "purchasing_name": "string" | null,
+        "manager_name": "string" | null,
+        "amount_raised": "number" | null,
+        "funding_round": "string" | null,
+        "source": "string" | null,
+        "reasoning": "A brief explanation of your extraction decisions."
+    }}
+
+    Here is the text to analyze:
+    ---
+    {article_text[:4000]}
+    ---
+    """
+
+    response_content = llm_prompt(prompt, max_tokens=1024, temperature=0.0)
+    if not response_content:
+        logger.error("LLM returned no content for structured data extraction.")
+        return None
+
+    structured_data = safe_parse_json(response_content)
+    if not structured_data:
+        logger.error(f"Failed to parse JSON from LLM for structured data. Raw response: {response_content}")
+        return None
+
+    logger.info(f"LLM structured data extracted successfully. Reasoning: {structured_data.get('reasoning')}")
+    return structured_data
 
 def normalize_domain(url):
     """Extract normalized domain from URL, handle special TLDs"""
@@ -71,17 +165,15 @@ def company_name_matches_domain(company_name, domain):
     score = fuzz.partial_ratio(norm_company, norm_domain)
     return score
 
-def llm_prompt(prompt_text, max_tokens=1024, temperature=0.1, model=None):
+def llm_prompt(prompt_text: str, max_tokens: int = 1024, temperature: float = 0.1) -> str | None:
     """Call common LLM, easy to switch models"""
-    if model is None:
-        model = config.LLM_MODEL_ID
-    
     try:
         response = openai.chat.completions.create(
-            model=model,
+            model=config.LLM_MODEL_ID,
             messages=[{"role": "user", "content": prompt_text}],
             max_tokens=max_tokens,
-            temperature=temperature
+            temperature=temperature,
+            response_format={"type": "json_object"}  # Yêu cầu LLM trả về JSON
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -266,6 +358,72 @@ def extract_candidate_paragraphs(article_text):
     sentences = article_text.split('.')
     return '.'.join(sentences[:4])
 
+def extract_company_info_llm(article_text: str) -> Dict[str, Any] | None:
+    """
+    Extract detailed company information including industry and key personnel.
+    """
+    prompt = f"""
+    You are a business intelligence expert. Analyze the following text and extract detailed company information.
+
+    Extract the following information:
+    1. **industry**: The primary industry/sector of the company
+    2. **ceo_name**: The CEO or founder's name
+    3. **procurement_name**: Procurement officer or head of procurement
+    4. **purchasing_name**: Purchasing manager or head of purchasing
+    5. **manager_name**: Any other key manager mentioned
+
+    Return a JSON object:
+    {{
+        "industry": "string" | null,
+        "ceo_name": "string" | null,
+        "procurement_name": "string" | null,
+        "purchasing_name": "string" | null,
+        "manager_name": "string" | null
+    }}
+
+    Text to analyze:
+    ---
+    {article_text[:3000]}
+    ---
+    """
+
+    response_content = llm_prompt(prompt, max_tokens=512, temperature=0.0)
+    if not response_content:
+        return None
+
+    return safe_parse_json(response_content)
+
+def extract_funding_details_llm(article_text: str) -> Dict[str, Any] | None:
+    """
+    Extract funding-specific information.
+    """
+    prompt = f"""
+    You are a financial analyst. Extract funding information from the following text.
+
+    Extract:
+    1. **amount_raised**: The funding amount (number only, no currency)
+    2. **funding_round**: The type of funding round
+    3. **raised_date**: The date mentioned in the article (YYYY-MM-DD)
+
+    Return a JSON object:
+    {{
+        "amount_raised": "number" | null,
+        "funding_round": "string" | null,
+        "raised_date": "YYYY-MM-DD" | null
+    }}
+
+    Text to analyze:
+    ---
+    {article_text[:3000]}
+    ---
+    """
+
+    response_content = llm_prompt(prompt, max_tokens=512, temperature=0.0)
+    if not response_content:
+        return None
+
+    return safe_parse_json(response_content)
+
 def extract_company_name_and_raised_date_llm(article_text, min_date, max_date):
     """
     Extract company name and funding date from article.
@@ -351,51 +509,6 @@ def extract_funding_info_llm(article_text):
             result['linkedin'] = find_company_linkedin(company_name)
     return result
 
-def extract_company_info_llm(article_text, links_context=None):
-    """
-    Extract company information, website, LinkedIn.
-    Optimized: combine all info in one call
-    """
-    links_info = ""
-    if links_context:
-        links_info = f"\nLinks in article: {links_context}"
-    
-    prompt = (
-        "You are a startup analyst. Extract information from this article:\n\n"
-        "1. Main company name\n"
-        "2. Official website (if mentioned in article or can be inferred)\n"
-        "3. Official LinkedIn (if mentioned in article or can be inferred)\n"
-        "4. If website not found, guess 3 possible domains (e.g., alix.com, alix.ai, getalix.com)\n"
-        "5. If LinkedIn not found, guess possible LinkedIn URL\n\n"
-        "IMPORTANT: Return ONLY a JSON object with this exact format:\n"
-        "{\n"
-        '  "company_name": "company name",\n'
-        '  "website": "official website",\n'
-        '  "website_guesses": ["domain1", "domain2", "domain3"],\n'
-        '  "linkedin": "official linkedin",\n'
-        '  "linkedin_guess": "linkedin guess",\n'
-        '  "confidence": "high/medium/low",\n'
-        '  "reasoning": "explanation"\n'
-        "}\n\n"
-        f"Article:\n{article_text[:2000]}...{links_info}"
-    )
-    
-    content = llm_prompt(prompt, max_tokens=1024)
-    if not content:
-        logger.error("LLM returned no content for company info extraction")
-        return None
-    
-    result = safe_parse_json(content)
-    if not result:
-        logger.error(f"Could not parse JSON from LLM content. Raw content: {content[:1000]}...")
-        return None
-    
-    if result:
-        logger.info(f"LLM extracted: {result.get('company_name', '')} | confidence: {result.get('confidence', '')}")
-        return result
-    
-    return None
-
 def fetch_page_content(url, max_chars=1000):
     """Fetch webpage content to verify"""
     try:
@@ -438,7 +551,7 @@ def verify_url_with_llm(url, company_name, url_type="website", context=None):
         "Return JSON: {\"is_valid\": true/false, \"confidence\": \"high/medium/low\", \"reason\": \"explanation\"}"
     )
     
-    content = llm_prompt(prompt, max_tokens=256, model="gpt-3.5-turbo-0125")
+    content = llm_prompt(prompt, max_tokens=256)
     if not content:
         return False
     
@@ -537,7 +650,7 @@ def is_negative_news(article_text):
         'ipo anchor price range', 'ipo anchor price discovery'
     ]
     text = article_text.lower()
-    return any(kw in text for kw in negative_keywords)
+    return any(kw in text for kw in negative_keywords) 
 
 def extract_funding_amount_llm(article_text):
     """

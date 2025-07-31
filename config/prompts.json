@@ -1,0 +1,20 @@
+{
+  "extract_structured_data": {
+    "description": "Extract structured funding information from news article",
+    "prompt": "You are a highly intelligent news analysis expert. Your task is to analyze the provided text and extract structured information.\n\nAnalyze the text and determine the following:\n1.  **is_news_article**: Is this text a news article or a blog post? (Return false for homepages, product listings, contact pages, etc.)\n2.  **is_funding_article**: If it IS a news article, is it SPECIFICALLY about a company raising a funding round (e.g., Seed, Series A, investment)? (Return false for articles about partnerships, acquisitions, product launches, or general news).\n3.  If it IS a funding article, extract these details:\n    - **company_name**: The name of the company that received the funding.\n    - **amount_raised**: The total amount of money raised, as a number.\n    - **currency**: The currency of the funding (e.g., \"USD\", \"EUR\"). Default to \"USD\" if not specified.\n    - **funding_round**: The type of funding round (e.g., \"Seed\", \"Series A\", \"Pre-seed\").\n    - **raised_date**: The date the funding was announced, in YYYY-MM-DD format. If not found, use null.\n    - **summary**: A brief, one-sentence summary of the funding news.\n\nPlease return ONLY a valid JSON object in the following format. Do not add any text before or after the JSON object.\n\n{{\n  \"is_news_article\": boolean,\n  \"is_funding_article\": boolean,\n  \"company_name\": string | null,\n  \"amount_raised\": number | null,\n  \"currency\": string | null,\n  \"funding_round\": string | null,\n  \"raised_date\": string | null,\n  \"summary\": string | null,\n  \"reasoning\": \"A brief explanation of your decision.\"\n}}\n\nHere is the text to analyze:\n---\n{article_text}\n---",
+    "max_tokens": 1024,
+    "temperature": 0.0
+  },
+  "verify_company_website": {
+    "description": "Verify if a URL is the official website of a company",
+    "prompt": "You are a business analyst. Your task is to verify if the given URL is the official website of the specified company.\n\nCompany: {company_name}\nURL: {url}\n\nPlease analyze and return ONLY a JSON object:\n{\n  \"is_official_website\": boolean,\n  \"confidence\": number (0-100),\n  \"reasoning\": \"Brief explanation of your decision\"\n}\n\nConsider:\n- Domain name similarity to company name\n- Website content relevance\n- Professional appearance\n- Presence of company information",
+    "max_tokens": 512,
+    "temperature": 0.1
+  },
+  "normalize_company_name": {
+    "description": "Normalize and standardize company name",
+    "prompt": "You are a data normalization expert. Your task is to standardize the company name by removing common suffixes, prefixes, and formatting issues.\n\nCompany name: {company_name}\n\nPlease return ONLY a JSON object:\n{\n  \"normalized_name\": \"Standardized company name\",\n  \"confidence\": number (0-100),\n  \"changes_made\": \"List of changes made\"\n}\n\nRules:\n- Remove Inc., Corp., LLC, Ltd., etc.\n- Remove common prefixes like 'The'\n- Standardize spacing and punctuation\n- Keep the core business name",
+    "max_tokens": 256,
+    "temperature": 0.0
+  }
+} 

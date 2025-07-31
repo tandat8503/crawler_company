@@ -1,0 +1,112 @@
+{
+  "techcrunch": {
+    "domains": ["techcrunch.com"],
+    "name": "TechCrunch",
+    "use_generic": false
+  },
+  "finsmes": {
+    "domains": ["finsmes.com"],
+    "name": "Finsmes",
+    "use_generic": false
+  },
+  "crunchbase": {
+    "domains": ["news.crunchbase.com", "crunchbase.com"],
+    "name": "Crunchbase News",
+    "use_generic": true
+  },
+  "venturebeat": {
+    "domains": ["venturebeat.com"],
+    "name": "VentureBeat",
+    "use_generic": true
+  },
+  "wired": {
+    "domains": ["wired.com"],
+    "name": "Wired",
+    "use_generic": true
+  },
+  "theverge": {
+    "domains": ["theverge.com"],
+    "name": "The Verge",
+    "use_generic": true
+  },
+  "reuters": {
+    "domains": ["reuters.com"],
+    "name": "Reuters",
+    "use_generic": true
+  },
+  "bloomberg": {
+    "domains": ["bloomberg.com", "bloomberg.news"],
+    "name": "Bloomberg",
+    "use_generic": true
+  },
+  "cnbc": {
+    "domains": ["cnbc.com"],
+    "name": "CNBC",
+    "use_generic": true
+  },
+  "forbes": {
+    "domains": ["forbes.com"],
+    "name": "Forbes",
+    "use_generic": true
+  },
+  "businessinsider": {
+    "domains": ["businessinsider.com"],
+    "name": "Business Insider",
+    "use_generic": true
+  },
+  "techcrunch_uk": {
+    "domains": ["techcrunch.co.uk"],
+    "name": "TechCrunch UK",
+    "use_generic": false
+  },
+  "axios": {
+    "domains": ["axios.com"],
+    "name": "Axios",
+    "use_generic": true
+  },
+  "protocol": {
+    "domains": ["protocol.com"],
+    "name": "Protocol",
+    "use_generic": true
+  },
+  "techcrunch_fr": {
+    "domains": ["techcrunch.fr"],
+    "name": "TechCrunch France",
+    "use_generic": false
+  },
+  "techcrunch_de": {
+    "domains": ["techcrunch.de"],
+    "name": "TechCrunch Germany",
+    "use_generic": false
+  },
+  "eu_startups": {
+    "domains": ["eu-startups.com"],
+    "name": "EU-Startups",
+    "use_generic": true
+  },
+  "startup_grind": {
+    "domains": ["startupgrind.com"],
+    "name": "Startup Grind",
+    "use_generic": true
+  },
+  "product_hunt": {
+    "domains": ["producthunt.com"],
+    "name": "Product Hunt",
+    "use_generic": true
+  },
+  "angel_list": {
+    "domains": ["angel.co", "wellfound.com"],
+    "name": "AngelList",
+    "use_generic": true
+  },
+  "vnexpress": {
+    "domains": ["vnexpress.net"],
+    "name": "VnExpress",
+    "use_generic": true
+  },
+  "pitchbook": {
+    "domains": ["pitchbook.com"],
+    "name": "PitchBook",
+    "use_generic": true
+  }
+} 

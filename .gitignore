@@ -70,4 +70,15 @@ htmlcov/
 .coverage.*
 coverage.xml
 *.cover
-.hypothesis/ 
+.hypothesis/
+
+# Database files (ignore data)
+companies.db
+
+# Test and demo files (ignore for production)
+test_*.py
+demo_*.py
+
+# Documentation files (keep only main README)
+README_*.md
+CLEANUP_SUMMARY.md 
