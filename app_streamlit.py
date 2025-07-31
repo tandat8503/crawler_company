@@ -138,12 +138,12 @@ def main():
     st.sidebar.title("Navigation")
     page = st.sidebar.selectbox(
         "Choose a page:",
-        ["🏠 Home", "🤖 Natural Language Crawler", "🕷️ Universal Crawler", "📊 Data View", "🔍 Search & Filter", "⚙️ Settings"]
+        ["🏠 Home", "💬 Smart Prompt Crawler", "🕷️ Universal Crawler", "📊 Data View", "🔍 Search & Filter", "⚙️ Settings"]
     )
     
     if page == "🏠 Home":
         show_dashboard()
-    elif page == "🤖 Natural Language Crawler":
+    elif page == "💬 Smart Prompt Crawler":
         show_natural_language_crawler()
     elif page == "🕷️ Universal Crawler":
         show_universal_crawler()
@@ -432,8 +432,8 @@ def show_settings():
                 st.error("❌ Failed to clear data")
 
 def show_natural_language_crawler():
-    """Display the natural language crawler interface."""
-    st.header("🤖 Natural Language Crawler")
+    """Display the smart prompt crawler interface."""
+    st.header("💬 Smart Prompt Crawler")
     
     st.info("💡 **Cách sử dụng**: Nhập yêu cầu bằng tiếng Việt hoặc tiếng Anh, hệ thống sẽ tự động hiểu và crawl dữ liệu!")
     

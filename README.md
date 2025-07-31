@@ -6,9 +6,9 @@ Hệ thống **Company Funding Crawler** là một ứng dụng AI tiên tiến 
 
 ## ✨ Tính năng chính
 
-### 🤖 Natural Language Crawler
+### 💬 Smart Prompt Crawler
 
-- **Prompt tự nhiên**: Nhập yêu cầu bằng tiếng Việt hoặc tiếng Anh
+- **Prompt thông minh**: Nhập yêu cầu bằng tiếng Việt hoặc tiếng Anh
 - **Auto parsing**: AI tự động hiểu và chuyển đổi thành URL
 - **Smart validation**: Kiểm tra và validate input
 
@@ -79,9 +79,9 @@ company_raisefund/
 
 ## 🎯 Cách sử dụng
 
-### 1. Natural Language Crawler
+### 1. Smart Prompt Crawler
 
-1. Chọn "🤖 Natural Language Crawler"
+1. Chọn "💬 Smart Prompt Crawler"
 2. Nhập prompt: "Tôi muốn lấy tin về raise fund từ techcrunch"
 3. AI sẽ tự động hiểu và crawl
 
